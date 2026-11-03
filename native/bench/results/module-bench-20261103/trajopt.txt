@@ -1,0 +1,19 @@
+update: copy values + finite masks           eager    0.035 /    0.060 ms (host   0.024) | graph 0.01843 ms
+update: Ruiz unscale(skip replaced) + reset + 10 passes eager    0.459 /    0.519 ms (host   0.196) | graph 0.28979 ms
+update: KKT scatter P, A, G (masked)         eager    0.011 /    0.029 ms (host   0.010) | graph 0.00716 ms
+iteration: regularization + KKT diag + factor eager    0.776 /    0.794 ms (host   0.044) | graph 0.71443 ms
+iteration: cuDSS FACTORIZATION only          eager    0.775 /    0.795 ms (host   0.035) | graph 0.71056 ms
+iteration: cuDSS SOLVE only                  eager    0.197 /    0.211 ms (host   0.060) | graph 0.13926 ms
+iteration: condensed KKT solve (elim + SOLVE + recover) eager    0.232 /    0.253 ms (host   0.100) | graph 0.20665 ms
+spmv cusparse: P x                           eager    0.009 /    0.009 ms (host   0.007) | graph 0.00819 ms
+spmv cusparse: A x                           eager    0.008 /    0.009 ms (host   0.007) | graph 0.00784 ms
+spmv cusparse: A^T y                         eager    0.009 /    0.009 ms (host   0.007) | graph 0.00819 ms
+spmv cusparse: G x                           eager    0.012 /    0.012 ms (host   0.009) | graph 0.00995 ms
+spmv cusparse: G^T z                         eager    0.028 /    0.029 ms (host   0.007) | graph 0.02761 ms
+spmv custom: P x                             eager    0.003 /    0.004 ms (host   0.002) | graph 0.00307 ms
+spmv custom: A x                             eager    0.004 /    0.004 ms (host   0.002) | graph 0.00307 ms
+spmv custom: A^T y                           eager    0.003 /    0.004 ms (host   0.002) | graph 0.00310 ms
+spmv custom: G x                             eager    0.005 /    0.006 ms (host   0.002) | graph 0.00512 ms
+spmv custom: G^T z                           eager    0.013 /    0.014 ms (host   0.002) | graph 0.01331 ms
+public: SparseSolver::update (all values)    eager    0.486 /    0.546 ms (host   0.212)
+public: SparseSolver::solve (iteration graphs) eager   37.837 /   38.209 ms (host  37.843)
