@@ -135,6 +135,32 @@ void bind_solver(nb::module_& m, nb::module_& testing) {
              put("s_bl", r.s_bl, r.num_xl); put("s_bu", r.s_bu, r.num_xu);
              return d;
            })
+      .def("input_buffers",
+           [](SparseSolver& s, bool host) {
+             InputBuffers ib = host ? s.host_input_buffers() : s.input_buffers();
+             nb::dict d;
+             auto put = [&](const char* k, double* p, int64_t len) {
+               d[k] = nb::make_tuple(reinterpret_cast<uintptr_t>(p), len);
+             };
+             put("P", ib.P, ib.len_P); put("c", ib.c, ib.len_c); put("A", ib.A, ib.len_A);
+             put("b", ib.b, ib.len_b); put("G", ib.G, ib.len_G); put("h_l", ib.h_l, ib.len_h_l);
+             put("h_u", ib.h_u, ib.len_h_u); put("x_l", ib.x_l, ib.len_x_l); put("x_u", ib.x_u, ib.len_x_u);
+             return d;
+           },
+           nb::arg("host") = false)
+      .def("update_staged",
+           [](SparseSolver& s, const std::vector<std::string>& blocks, bool from_host) {
+             UpdateBlocks ub;
+             for (const auto& k : blocks) {
+               if (k == "P") ub.P = true; else if (k == "c") ub.c = true; else if (k == "A") ub.A = true;
+               else if (k == "b") ub.b = true; else if (k == "G") ub.G = true; else if (k == "h_l") ub.h_l = true;
+               else if (k == "h_u") ub.h_u = true; else if (k == "x_l") ub.x_l = true; else if (k == "x_u") ub.x_u = true;
+               else throw Error(ErrorCode::InvalidArgument, "unknown block " + k);
+             }
+             nb::gil_scoped_release release;
+             s.update_staged(ub, from_host);
+           },
+           nb::arg("blocks"), nb::arg("from_host") = false)
       .def("info", [](SparseSolver& s) {
         Info i;
         {

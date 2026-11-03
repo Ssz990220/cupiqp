@@ -58,6 +58,9 @@ parser.add_argument("--native-build", type=Path, default=REPO / "build" / "nativ
 parser.add_argument("--graph-mode", choices=("iteration", "device", "none"), default="iteration",
                     help="native only: GraphMode (iteration = reference default)")
 parser.add_argument("--custom-spmv", action="store_true", help="native only: deterministic custom SpMV")
+parser.add_argument("--staged", action="store_true",
+                    help="native only: write values into the solver-owned input buffers before the timed "
+                         "interval, then update_staged() (host_values: pinned host buffers, H2D in the graph)")
 args = parser.parse_args()
 
 OUT = args.output
@@ -191,20 +194,45 @@ class Group:
 events = [wp.Event(device="cuda:0", enable_timing=True) for _ in range(5)]
 
 
+STAGE_KEYS = (("P", "P"), ("A", "A"), ("G", "C"), ("c", "q"), ("b", "b"), ("h_l", "l"), ("h_u", "u"))
+
+
+def stage_inputs(g, cid, mode):
+    """Producer side of the staged mode (not timed)."""
+    if mode == "host_values":
+        hb = g.s.host_input_buffers()
+        host = g.packets[cid]["host"].numpy()
+        for dst, src in STAGE_KEYS:
+            if dst in hb:
+                hb[dst][:] = host[g.offsets[src]:g.offsets[src] + g.sizes[src]]
+    else:
+        db = g.s.input_buffers()
+        for dst, src in STAGE_KEYS:
+            if dst in db:
+                wp.copy(db[dst], g.packets[cid]["values"][src])
+    wp.synchronize_stream(g.s.stream)
+
+
 def run_step(g, cid, mode, measure):
     s = g.s
+    staged = args.backend == "native" and args.staged
+    if staged:
+        stage_inputs(g, cid, mode)
     if measure:
         wp.record_event(events[0])
     begin = raw_ns()
     begin_mono = time.perf_counter_ns()
-    if mode == "host_values":
+    if mode == "host_values" and not staged:
         wp.copy(g.stage, g.packets[cid]["host"])
         v = g.stage_values
     else:
         v = g.packets[cid]["values"]
     if measure:
         wp.record_event(events[1])
-    s.update(P=v["P"], c=v["q"], A=v["A"], b=v["b"], G=v["C"], h_l=v["l"], h_u=v["u"], check_validity=False)
+    if staged:
+        s.update_staged(from_host=(mode == "host_values"))
+    else:
+        s.update(P=v["P"], c=v["q"], A=v["A"], b=v["b"], G=v["C"], h_l=v["l"], h_u=v["u"], check_validity=False)
     if measure:
         wp.record_event(events[2])
     s.solve()
@@ -271,6 +299,7 @@ metadata = dict(
     settings=settings_dict(groups[0].s),
     native_graph_mode=args.graph_mode if args.backend == "native" else None,
     native_custom_spmv=args.custom_spmv if args.backend == "native" else None,
+    native_staged_inputs=args.staged if args.backend == "native" else None,
     protocol=("Same as benchmark/replay_mpc_updates.py: one fixed template and solver per stored pattern; "
               "explicit zeros retained; all numeric values replaced through public update(); two excluded "
               "warm-up passes; first snapshot of each trajectory solved as an excluded seed every repeat; mode "

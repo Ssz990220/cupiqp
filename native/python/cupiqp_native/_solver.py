@@ -284,6 +284,45 @@ class SparseSolver:
         self._exit()
         return keep
 
+    # ------------------------------------------------------------- staged inputs
+    _BLOCKS = ("P", "c", "A", "b", "G", "h_l", "h_u", "x_l", "x_u")
+
+    def input_buffers(self) -> dict:
+        """Solver-owned device input buffers (native extension), fixed for the
+        lifetime of the solver: ``{name: warp.array}`` in the stored-entry
+        order of the setup() patterns. Write new values into them (ordered on
+        ``solver.stream``), then call :meth:`update_staged`."""
+        if self._sizes is None:
+            raise RuntimeError("Solver not setup yet. Call setup() first.")
+        if not hasattr(self, "_dev_inputs"):
+            self._dev_inputs = {k: wrap(ptr, (n,), owner=self)
+                                for k, (ptr, n) in self._native.input_buffers(False).items() if n}
+        return self._dev_inputs
+
+    def host_input_buffers(self) -> dict:
+        """Solver-owned pinned host input buffers: ``{name: numpy.ndarray}``
+        (zero copy). Fill them, then ``update_staged(from_host=True)``; the
+        host-to-device copy is part of the update's CUDA graph."""
+        if self._sizes is None:
+            raise RuntimeError("Solver not setup yet. Call setup() first.")
+        if not hasattr(self, "_host_inputs"):
+            import ctypes
+            out = {}
+            for k, (ptr, n) in self._native.input_buffers(True).items():
+                if n:
+                    buf = (ctypes.c_double * n).from_address(ptr)
+                    out[k] = np.frombuffer(buf, dtype=np.float64, count=n)
+            self._host_inputs = out
+        return self._host_inputs
+
+    def update_staged(self, blocks=None, from_host=False):
+        """Apply the values in the input buffers (all present blocks by
+        default). Replayed as one CUDA graph per block combination."""
+        blocks = list(self._BLOCKS if blocks is None else blocks)
+        self._enter()
+        self._native.update_staged(blocks, bool(from_host))
+        self._exit()
+
     def solve(self):
         if self._sizes is None:
             raise RuntimeError("Solver not setup yet. Call setup() first.")

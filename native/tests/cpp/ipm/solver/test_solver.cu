@@ -292,3 +292,76 @@ TEST(Solver, DeterministicCudssModeRejected) {
   s.settings().use_deterministic_mode_for_cudss = true;
   EXPECT_THROW(s.setup(q.P, d.view(), &q.A, &q.G), Error);
 }
+
+TEST(Solver, StagedUpdateMatchesPlainUpdate) {
+  HostQp q = random_qp(25, 5, 20, 41);
+  DeviceQp d(q);
+  // A second problem with the same patterns.
+  HostQp q2 = q;
+  std::mt19937 gen(8);
+  std::uniform_real_distribution<double> U(-0.3, 0.3);
+  for (auto& v : q2.c) v += U(gen);
+  for (auto& v : q2.Gv) v = v == 0.0 ? 0.0 : v * (1 + U(gen));
+  for (auto& v : q2.Pv) v *= 1.05;
+  DeviceQp d2(q2);
+
+  SparseSolver plain = make_solver(q, d, GraphMode::IterationGraphHostLoop);
+  plain.update(d2.view());
+  plain.solve();
+  Info ip = plain.info();
+  ASSERT_EQ(ip.status, Status::Solved);
+  auto xp = host_x(plain);
+
+  for (bool from_host : {false, true}) {
+    SparseSolver st = make_solver(q, d, GraphMode::IterationGraphHostLoop);
+    InputBuffers ib = from_host ? st.host_input_buffers() : st.input_buffers();
+    ASSERT_EQ(ib.len_P, q.P.nnz());
+    ASSERT_EQ(ib.len_G, q.G.nnz());
+    ASSERT_EQ(ib.len_x_u, q.P.rows);
+    auto put = [&](double* dst, const std::vector<double>& h) {
+      CUPIQP_CUDA_CHECK(cudaMemcpy(dst, h.data(), sizeof(double) * h.size(), cudaMemcpyDefault));
+    };
+    put(ib.P, q2.Pv); put(ib.c, q2.c); put(ib.A, q2.Av); put(ib.b, q2.b); put(ib.G, q2.Gv);
+    put(ib.h_l, q2.h_l); put(ib.h_u, q2.h_u); put(ib.x_l, q2.x_l); put(ib.x_u, q2.x_u);
+    for (int rep = 0; rep < 3; ++rep) {
+      const Counters c0 = st.counters();
+      st.update_staged(UpdateBlocks::all(), from_host);
+      st.solve();
+      Info is = st.info();
+      ASSERT_EQ(is.status, Status::Solved) << "from_host " << from_host;
+      EXPECT_NEAR(is.iter, ip.iter, 1);
+      EXPECT_LT(max_abs_diff(host_x(st), xp), 1e-8) << "from_host " << from_host;
+      const Counters c1 = st.counters();
+      if (rep > 0) {  // update graph, prelude/finalize and iteration graphs are reused
+        EXPECT_EQ(c1.graph_captures, c0.graph_captures);
+        EXPECT_EQ(c1.cudss_device_allocs, c0.cudss_device_allocs);
+        EXPECT_LE(c1.host_syncs - c0.host_syncs, is.iter + 2);  // loop checks (+ info())
+      }
+    }
+  }
+}
+
+TEST(Solver, StagedPartialUpdateOnlyReplacesNamedBlocks) {
+  HostQp q = random_qp(20, 4, 15, 52);
+  DeviceQp d(q);
+  HostQp q2 = q;
+  for (auto& v : q2.c) v = -v;
+  DeviceQp d2(q2);
+  SparseSolver plain = make_solver(q, d, GraphMode::None);
+  ValuesView only_c;
+  only_c.c = d2.c.data();
+  plain.update(only_c);
+  plain.solve();
+  ASSERT_EQ(plain.info().status, Status::Solved);
+  auto xp = host_x(plain);
+
+  SparseSolver st = make_solver(q, d, GraphMode::IterationGraphHostLoop);
+  InputBuffers ib = st.input_buffers();
+  CUPIQP_CUDA_CHECK(cudaMemcpy(ib.c, q2.c.data(), sizeof(double) * q2.c.size(), cudaMemcpyHostToDevice));
+  UpdateBlocks blocks;
+  blocks.c = true;
+  st.update_staged(blocks);
+  st.solve();
+  ASSERT_EQ(st.info().status, Status::Solved);
+  EXPECT_LT(max_abs_diff(host_x(st), xp), 1e-8);
+}
