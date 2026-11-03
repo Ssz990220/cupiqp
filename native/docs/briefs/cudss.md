@@ -1,8 +1,8 @@
 # Brief: `cudss` module (cuDSS direct solver wrapper)
 
-Worktree `~/Projects/cupiqp-native-wt/cudss`, branch `task/cudss`. Read `../AGENT_BRIEF.md` first, then
+Worktree `~/Projects/cupiqp-native-wt/cudss`, branch `task/cudss`. Read `README.md` (this folder) first, then
 DESIGN.md (sections 4, 7, 10.1), FEASIBILITY.md sections 3.1-3.4, DEPENDENCY_GRAPH.md (row "M5 cudss"),
-shared headers, and your contract `native/src/cudss/cudss_solver.hpp`.
+shared headers, and your contract `native/src/linalg/cudss/cudss_solver.hpp`.
 
 ## Start here
 - Proof of concept already working: `native/poc/cudss_graph_poc.cu` (configuration, counting-free
@@ -24,13 +24,13 @@ shared headers, and your contract `native/src/cudss/cudss_solver.hpp`.
 - Do not read factorization info (`cudssDataGet` blocks and breaks capture). Same as the reference.
 
 ## Tests
-- C++ (`native/tests/cpp/cudss/`): random quasi-definite KKT-shaped systems (lower view, full P block
+- C++ (`native/tests/cpp/linalg/cudss/`): random quasi-definite KKT-shaped systems (lower view, full P block
   stored) vs a dense CPU solve written in the test; repeated factor with changed values reuses one
   analysis; explicit zero entries that become nonzero; capture/replay bitwise equal to eager; SOLVE in a
   conditional body works after patching and fails without it; allocation counts after warm-up.
 - A micro-benchmark executable (not a test) timing factor and solve, eager vs graph, on the MPC KKT shape:
   dim 2754, structure P (169 x 169, dense-ish 8977 nnz), A (64 x 169, 920 nnz), G (2521 x 169, 249801 nnz).
-- pytest parity (`native/tests/python/cudss/`): the same matrix and rhs through the reference
+- pytest parity (`native/tests/python/linalg/cudss/`): the same matrix and rhs through the reference
   `CudssStackedSolver` and native via `_testing`; solutions should agree to about 1e-14 relative
   (bitwise if cuDSS is deterministic for identical inputs; report).
 

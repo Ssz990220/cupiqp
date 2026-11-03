@@ -1,7 +1,7 @@
 # Brief: `spmv` module (cuSPARSE sparse mat-vec operators)
 
-Worktree `~/Projects/cupiqp-native-wt/spmv`, branch `task/spmv`. Read `../AGENT_BRIEF.md` first, then
-DESIGN.md, DEPENDENCY_GRAPH.md (row "M2 spmv"), shared headers, and your contract `native/src/spmv/spmv.hpp`.
+Worktree `~/Projects/cupiqp-native-wt/spmv`, branch `task/spmv`. Read `README.md` (this folder) first, then
+DESIGN.md, DEPENDENCY_GRAPH.md (row "M2 spmv"), shared headers, and your contract `native/src/linalg/spmv/spmv.hpp`.
 
 ## Start here (reference, pinned)
 - `cupiqp/sparse/sparse_matvec.py` (`SparseMatVecProduct`: cuSPARSE SpMV, `CUSPARSE_SPMV_ALG_DEFAULT`,
@@ -22,10 +22,10 @@ DESIGN.md, DEPENDENCY_GRAPH.md (row "M2 spmv"), shared headers, and your contrac
   warmed, median. Keep cuSPARSE as default; a faster custom kernel within 1e-14 relative goes behind an option.
 
 ## Tests
-- C++ (`native/tests/cpp/spmv/`): random CSR (explicit zeros, empty rows, rectangular, empty) vs CPU;
+- C++ (`native/tests/cpp/linalg/spmv/`): random CSR (explicit zeros, empty rows, rectangular, empty) vs CPU;
   alpha/beta; transposes; capture/replay bitwise equal to eager; in-place value updates seen; zero
   allocations over many calls.
-- pytest parity (`native/tests/python/spmv/`): reference `SparseMatVecProduct` vs native `_testing`
+- pytest parity (`native/tests/python/linalg/spmv/`): reference `SparseMatVecProduct` vs native `_testing`
   (expect bitwise equality; report otherwise).
 
 Hand-off note: `native/docs/modules/spmv.md` (include benchmark numbers and the conditional-body result).

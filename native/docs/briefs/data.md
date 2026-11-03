@@ -1,9 +1,9 @@
 # Brief: `data` module (problem storage)
 
-Worktree `~/Projects/cupiqp-native-wt/data`, branch `task/data`. Read `../AGENT_BRIEF.md` first (rules,
+Worktree `~/Projects/cupiqp-native-wt/data`, branch `task/data`. Read `README.md` (this folder) first (rules,
 build/test commands, ownership, commit format), then DESIGN.md, DEPENDENCY_GRAPH.md (row "M1 data"),
-the shared headers in `native/include/cupiqp/` and `native/src/core/`, and your contract
-`native/src/data/sparse_data.hpp`.
+the shared headers in `native/include/cupiqp/` and `native/src/common/`, and your contract
+`native/src/problem/data/sparse_data.hpp`.
 
 ## Start here (reference, pinned)
 - `cupiqp/sparse/sparse_solver.py`: `_check_csr`, `_check_dense_vector`, `setup`, `update`.
@@ -25,10 +25,10 @@ the shared headers in `native/include/cupiqp/` and `native/src/core/`, and your 
   +-inf vs +-1e20 exactly.
 
 ## Tests
-- C++ (`native/tests/cpp/data/`): validation accept/reject; explicit zeros kept in value order; masks
+- C++ (`native/tests/cpp/problem/data/`): validation accept/reject; explicit zeros kept in value order; masks
   for all-finite, one-sided, mixed, and finite<->infinite switches; repeated `set_values` keeps all
   device addresses and allocates nothing (`cudaMemGetInfo` before/after a loop).
-- pytest parity (`native/tests/python/data/`): problems from `tests.helpers` and SciPy; reference
+- pytest parity (`native/tests/python/problem/data/`): problems from `tests.helpers` and SciPy; reference
   `SparseData` (e.g. `cupiqp.SparseSolver` with `preconditioner_iter = 0`, read `solver.data`) vs native
   via `_testing`; values and masks bitwise equal, also after bound switches and explicit zeros
   becoming nonzero.

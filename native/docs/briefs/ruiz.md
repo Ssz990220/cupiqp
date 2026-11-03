@@ -1,9 +1,9 @@
 # Brief: `ruiz` module (sparse Ruiz equilibration)
 
-Worktree `~/Projects/cupiqp-native-wt/ruiz`, branch `task/ruiz`. Read `../AGENT_BRIEF.md` first, then
+Worktree `~/Projects/cupiqp-native-wt/ruiz`, branch `task/ruiz`. Read `README.md` (this folder) first, then
 DESIGN.md, DEPENDENCY_GRAPH.md (row "M3 ruiz"), FEASIBILITY.md section 3.5, shared headers (note
-`SparseDataView`, `ScalingView`, `VariablesView`, `UpdateMask` in `src/core/views.hpp`), and your
-contract `native/src/ruiz/ruiz.hpp`.
+`SparseDataView`, `ScalingView`, `VariablesView`, `UpdateMask` in `src/common/views.hpp`), and your
+contract `native/src/problem/ruiz/ruiz.hpp`.
 
 ## Start here (reference, pinned)
 - `cupiqp/preconditioner.py` `RuizEquilibration.scale_data` (the pass loop, lines ~358-422), then
@@ -30,12 +30,12 @@ contract `native/src/ruiz/ruiz.hpp`.
   (upload CSR + vectors into `CudaBuffer`s, masks on the host with the same rule).
 
 ## Tests
-- pytest parity (`native/tests/python/ruiz/`, main oracle): several problems (`tests.helpers.random_feasible_qp`,
+- pytest parity (`native/tests/python/problem/ruiz/`, main oracle): several problems (`tests.helpers.random_feasible_qp`,
   SciPy random with explicit zeros, with/without A, G and each bound side, infinite bounds, scale_cost
   on/off, preconditioner_iter 0/1/10). Compare scaled data, delta, delta_b, cost_scaling, x_b_scaling,
   unscale factors, RHS norm, pass count, (un)scale_solution, and the solver's update sequence
   (unscale_data -> overwrite blocks -> reset + scale_data, and the reuse path) against the reference.
-- C++ (`native/tests/cpp/ruiz/`): iter 0 is identity; scale -> unscale round trip ~1e-15; device early exit
+- C++ (`native/tests/cpp/problem/ruiz/`): iter 0 is identity; scale -> unscale round trip ~1e-15; device early exit
   pass count equals a host-driven loop in the test; no allocation; scale_data captures and replays identically.
 
 Hand-off note: `native/docs/modules/ruiz.md` (optimization assessment on the MPC shape: pass fusion,

@@ -17,18 +17,20 @@ endif()
 option(CUPIQP_BUILD_TESTS "Build C++ module tests (GoogleTest)" ON)
 option(CUPIQP_BUILD_PYTHON "Build the nanobind module cupiqp_native._ext" ON)
 option(CUPIQP_BUILD_BENCH "Build native benchmarks" ON)
-set(CUDSS_ROOT "$ENV{HOME}/Projects/.deps/cudss-0.8.0.10" CACHE PATH "cuDSS install root (redist layout)")
+set(CUPIQP_CUDSS_ROOT "$ENV{HOME}/Projects/.deps/cudss-0.8.0.10" CACHE PATH "cuDSS install root (redist layout)")
 
 # ---------------------------------------------------------------- dependencies
 find_package(CUDAToolkit 13.0 REQUIRED)
-find_package(cudss 0.8 REQUIRED CONFIG PATHS "${CUDSS_ROOT}/lib/cmake/cudss" NO_DEFAULT_PATH)
+find_package(cudss 0.8 REQUIRED CONFIG PATHS "${CUPIQP_CUDSS_ROOT}/lib/cmake/cudss" NO_DEFAULT_PATH)
 message(STATUS "cuDSS: ${cudss_LIBRARY_DIR}")
 
 # ---------------------------------------------------------------- library
-# Every module lists its sources in src/<module>/sources.cmake by appending to
-# CUPIQP_SOURCES (paths relative to native/), so modules never edit this file.
+# Every module lists its sources in src/<group>/<module>/sources.cmake (or
+# src/common/sources.cmake) by appending to CUPIQP_SOURCES (paths relative to
+# native/), so modules never edit this file.
 set(CUPIQP_SOURCES "")
-file(GLOB CUPIQP_MODULE_SOURCE_LISTS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*/sources.cmake")
+file(GLOB_RECURSE CUPIQP_MODULE_SOURCE_LISTS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/sources.cmake")
+list(SORT CUPIQP_MODULE_SOURCE_LISTS)
 foreach(f ${CUPIQP_MODULE_SOURCE_LISTS})
   include(${f})
 endforeach()
@@ -62,7 +64,8 @@ if(CUPIQP_BUILD_TESTS)
   FetchContent_MakeAvailable(googletest)
   enable_testing()
   include(GoogleTest)
-  # Each module owns tests/cpp/<module>/CMakeLists.txt and calls cupiqp_add_test.
+  # Each module owns tests/cpp/<group>/<module>/CMakeLists.txt (mirroring src/)
+  # and calls cupiqp_add_test.
   function(cupiqp_add_test name)
     add_executable(${name} ${ARGN})
     target_link_libraries(${name} PRIVATE cupiqp_native_internal GTest::gtest_main)
@@ -70,11 +73,12 @@ if(CUPIQP_BUILD_TESTS)
     set_target_properties(${name} PROPERTIES BUILD_RPATH "${cudss_LIBRARY_DIR}")
     gtest_discover_tests(${name} DISCOVERY_TIMEOUT 120)
   endfunction()
-  file(GLOB CUPIQP_TEST_DIRS LIST_DIRECTORIES true "${CMAKE_CURRENT_SOURCE_DIR}/tests/cpp/*")
-  foreach(d ${CUPIQP_TEST_DIRS})
-    if(IS_DIRECTORY ${d} AND EXISTS ${d}/CMakeLists.txt)
-      add_subdirectory(${d})
-    endif()
+  file(GLOB_RECURSE CUPIQP_TEST_LISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/cpp/CMakeLists.txt")
+  list(SORT CUPIQP_TEST_LISTS)
+  foreach(f ${CUPIQP_TEST_LISTS})
+    get_filename_component(d ${f} DIRECTORY)
+    file(RELATIVE_PATH rel "${CMAKE_CURRENT_SOURCE_DIR}" "${d}")
+    add_subdirectory(${d} "${CMAKE_BINARY_DIR}/${rel}")
   endforeach()
 endif()
 
@@ -84,8 +88,8 @@ if(CUPIQP_BUILD_PYTHON)
   execute_process(COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
     OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE nanobind_ROOT)
   find_package(nanobind CONFIG REQUIRED)
-  file(GLOB CUPIQP_BIND_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/python/src/*.cpp"
-                                                  "${CMAKE_CURRENT_SOURCE_DIR}/python/src/*.cu")
+  file(GLOB CUPIQP_BIND_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/python/bindings/*.cpp"
+                                                  "${CMAKE_CURRENT_SOURCE_DIR}/python/bindings/*.cu")
   nanobind_add_module(_ext NB_STATIC ${CUPIQP_BIND_SOURCES})
   target_link_libraries(_ext PRIVATE cupiqp_native_internal)
   set_target_properties(_ext PROPERTIES

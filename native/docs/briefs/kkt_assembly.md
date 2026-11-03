@@ -1,8 +1,8 @@
 # Brief: `kkt_assembly` module (KKT pattern, slot maps, value updates)
 
-Worktree `~/Projects/cupiqp-native-wt/kkt_assembly`, branch `task/kkt_assembly`. Read `../AGENT_BRIEF.md`
+Worktree `~/Projects/cupiqp-native-wt/kkt_assembly`, branch `task/kkt_assembly`. Read `README.md` (this folder)
 first, then DESIGN.md, DEPENDENCY_GRAPH.md (row "M4 kkt_assembly"), shared headers, and your contract
-`native/src/kkt_assembly/kkt_assembly.hpp`.
+`native/src/linalg/kkt_assembly/kkt_assembly.hpp`.
 
 ## Start here (reference, pinned)
 - `cupiqp/sparse/sparse_kkt_solver.py`: `__init__`, `_initialize_kkt_csr`, `_refresh_P_diag_buffer`,
@@ -25,10 +25,10 @@ first, then DESIGN.md, DEPENDENCY_GRAPH.md (row "M4 kkt_assembly"), shared heade
 - Your tests build `SparseDataView` inputs with a small fixture (the `data` module is built in parallel).
 
 ## Tests
-- C++ (`native/tests/cpp/kkt_assembly/`): pattern vs an independent dense construction in the test;
+- C++ (`native/tests/cpp/linalg/kkt_assembly/`): pattern vs an independent dense construction in the test;
   slot maps land every entry where expected; explicit zeros that later become nonzero land in their
   slot; inactive G rows are zeroed; `update_diagonal`; addresses stable and no allocation across updates.
-- pytest parity (`native/tests/python/kkt_assembly/`): reference `SparseKKTSolver` (built from a reference
+- pytest parity (`native/tests/python/linalg/kkt_assembly/`): reference `SparseKKTSolver` (built from a reference
   `SparseData`; its `_kkt_mats` holds indptr/indices/data). Compare pattern and values bitwise after
   init, after `update_data` with new values and bound switches, and after the diagonal update with random
   x_reg/delta/z_reg (z_reg including zeros).

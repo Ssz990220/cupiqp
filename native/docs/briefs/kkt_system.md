@@ -1,8 +1,8 @@
 # Brief: `kkt_system` module (condensed KKT system)
 
-Worktree `~/Projects/cupiqp-native-wt/kkt_system`, branch `task/kkt_system`. Read `../AGENT_BRIEF.md`
+Worktree `~/Projects/cupiqp-native-wt/kkt_system`, branch `task/kkt_system`. Read `README.md` (this folder)
 first, then DESIGN.md, DEPENDENCY_GRAPH.md (row "M6 kkt_system"), shared headers, and your contract
-`native/src/kkt_system/kkt_system.hpp` (it depends on the headers of `spmv`, `kkt_assembly`, `cudss`,
+`native/src/linalg/kkt_system/kkt_system.hpp` (it depends on the headers of `spmv`, `kkt_assembly`, `cudss`,
 whose implementations are built in parallel by other agents).
 
 ## Start here (reference, pinned)
@@ -24,11 +24,11 @@ whose implementations are built in parallel by other agents).
 - Linking: until the dependency modules are merged, an executable that references `KktSystem` will not
   link. Keep the kernel parity tests and `bind_kkt_system.cpp` limited to the kernel launchers. Put the
   class-level C++ tests in a separate test target added only when
-  `${CMAKE_SOURCE_DIR}/src/cudss/cudss_solver.cu`, `src/spmv/spmv.cu` and `src/kkt_assembly/kkt_assembly.cu`
+  `${CMAKE_SOURCE_DIR}/src/linalg/cudss/cudss_solver.cu`, `src/linalg/spmv/spmv.cu` and `src/linalg/kkt_assembly/kkt_assembly.cu`
   exist (CMake `if(EXISTS ...)`). The integration owner runs them after merging.
 
 ## Tests
-- pytest parity (`native/tests/python/kkt_system/`): each reference Warp kernel (via its factory in
+- pytest parity (`native/tests/python/linalg/kkt_system/`): each reference Warp kernel (via its factory in
   `cupiqp/kkt_systems_kernels.py` / `solver_kernels.py`) on random inputs, including zero and infinite
   masks and z_reg == 0 rows, vs the native launchers; bitwise or <= 4 ulp.
 - Class-level (guarded) C++ test: assemble a small problem, run `update_scalings_and_factor` + `solve`,

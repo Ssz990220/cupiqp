@@ -1,10 +1,10 @@
 # Brief: `ipm_kernels` module (interior-point step, residual, termination kernels)
 
-Worktree `~/Projects/cupiqp-native-wt/ipm_kernels`, branch `task/ipm_kernels`. Read `../AGENT_BRIEF.md`
+Worktree `~/Projects/cupiqp-native-wt/ipm_kernels`, branch `task/ipm_kernels`. Read `README.md` (this folder)
 first, then DESIGN.md, DEPENDENCY_GRAPH.md (row "M7 ipm_kernels"), shared headers (`InfoView`,
-`VariablesView`, `DeviceSettingsView`, settings index enums and status codes in `src/core/views.hpp`).
-Your code lives in `native/src/ipm/`, tests in `native/tests/cpp/ipm/` and `native/tests/python/ipm/`,
-bindings in `native/python/src/bind_ipm_kernels.cpp`. You design the header `native/src/ipm/ipm_kernels.hpp`.
+`VariablesView`, `DeviceSettingsView`, settings index enums and status codes in `src/common/views.hpp`).
+Your code lives in `native/src/ipm/kernels/`, tests in `native/tests/cpp/ipm/kernels/` and `native/tests/python/ipm/kernels/`,
+bindings in `native/python/bindings/bind_ipm_kernels.cpp`. You design the header `native/src/ipm/kernels/ipm_kernels.hpp`.
 
 ## Start here (reference, pinned)
 - `cupiqp/solver_kernels.py`: every forward kernel factory and helper used by `cupiqp/solver.py`
@@ -28,11 +28,11 @@ bindings in `native/python/src/bind_ipm_kernels.cpp`. You design the header `nat
   the eager and host-loop modes).
 
 ## Tests
-- pytest parity (`native/tests/python/ipm/`, main oracle): for each kernel, random inputs (with masks
+- pytest parity (`native/tests/python/ipm/kernels/`, main oracle): for each kernel, random inputs (with masks
   0/1, infinite bounds, edge cases that hit every branch: finetune, retries exhausted, max iter, primal
   and dual infeasibility detection, duality-gap check on/off), launch the reference Warp kernel from its
   factory and the native one on copies; compare all outputs (bitwise or <= 4 ulp for element-wise;
   <= 1e-14 relative for sums; status/iteration integers exact).
-- C++ (`native/tests/cpp/ipm/`): hand-computed cases for termination, step length, mu and sigma.
+- C++ (`native/tests/cpp/ipm/kernels/`): hand-computed cases for termination, step length, mu and sigma.
 
 Hand-off note: `native/docs/modules/ipm_kernels.md`.
