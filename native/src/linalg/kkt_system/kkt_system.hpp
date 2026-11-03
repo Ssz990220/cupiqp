@@ -8,6 +8,8 @@
 
 #include <cuda_runtime_api.h>
 
+#include <functional>
+
 #include "common/buffer.hpp"
 #include "common/graph.hpp"
 #include "common/views.hpp"
@@ -22,6 +24,10 @@ class KktSystem {
   // Allocate x_reg, z_reg, z_reg_inv, rho/delta copies, rhs_x_bar, rhs_z_bar,
   // work buffers, m_s_all, m_z_inv_all, w_delta_inv_all, updated_rhs_z_all,
   // factor_status / solve_status (int32, zero), refinement buffers.
+  // `kkt` must be initialized and `cudss` initialized on kkt's pattern/values
+  // and analyzed by the caller; `ops` initialized on the same data. Every
+  // pointer must outlive this object. `settings` is unused (runtime values are
+  // read from dev_settings on the device).
   void init(const Dims& dims, const Settings& settings, KktAssembly* kkt, CudssSolver* cudss,
             SparseOperators* ops, DeviceSettingsView<double> dev_settings, LoopContext* loops,
             cudaStream_t s);
@@ -35,8 +41,11 @@ class KktSystem {
 
   // Reference KKTSystem.solve (forward, transpose = false): eliminate slacks
   // and duals, assemble [rhs_x_bar | rhs_y | rhs_z_bar] into the cuDSS rhs,
-  // cuDSS solve, split into lhs.x / lhs.y / work_z, optional iterative
-  // refinement, recover duals and slacks, write solve_status (finite check).
+  // cuDSS solve, split into lhs.x / lhs.y / work_z, write solve_status
+  // (finite check of that condensed solution, as the reference backend does),
+  // optional iterative refinement (each correction solve rewrites
+  // solve_status), recover duals and slacks. B == 1: rhs.y, lhs.x, lhs.y are
+  // used as contiguous rows.
   void solve(const SparseDataView<double>& data, const ScalingView<double>& scaling,
              const VariablesView<double>& rhs, const VariablesView<double>& lhs, cudaStream_t s);
 
@@ -44,6 +53,22 @@ class KktSystem {
   const int32_t* solve_status() const { return solve_status_.data(); }    // (B,)
 
  private:
+  // Reference KKTSolverBase.solve of the sparse backend: fused rhs assembly
+  // into the cuDSS rhs, cuDSS solve, fused split, finite check.
+  void kkt_solve(const double* rhs_x, const double* rhs_y, const double* rhs_z, double* lhs_x, double* lhs_y,
+                 double* lhs_z, cudaStream_t s);
+  void prepare_rhs(const ScalingView<double>& scaling, const VariablesView<double>& rhs, cudaStream_t s);
+  void recover_lhs(const ScalingView<double>& scaling, const VariablesView<double>& rhs,
+                   const VariablesView<double>& lhs, cudaStream_t s);
+  // Reference iterative_refinement on (rhs_x_bar, rhs.y, rhs_z_bar) ->
+  // (lhs.x, lhs.y, work_z); arguments are passed through ir_* members so the
+  // loop bodies are built once in init().
+  void iterative_refinement(cudaStream_t s);
+  void condensed_kkt_apply(const double* lhs_x, const double* lhs_y, const double* lhs_z, const double* rhs_x,
+                           const double* rhs_y, const double* rhs_z, double* out_x, double* out_y, double* out_z,
+                           bool residual, cudaStream_t s);
+  void ir_evaluate_and_decide(const double* cand_x, const double* cand_y, const double* cand_z, cudaStream_t s);
+
   Dims dims_;
   KktAssembly* kkt_ = nullptr;
   CudssSolver* cudss_ = nullptr;
@@ -54,6 +79,17 @@ class KktSystem {
   CudaBuffer<double> rho_, delta_, x_reg_, z_reg_, z_reg_inv_, rhs_x_bar_, rhs_z_bar_, work_x_, work_z_;
   CudaBuffer<double> m_s_all_, m_z_inv_all_, w_delta_inv_all_, updated_rhs_z_all_;
   CudaBuffer<int32_t> factor_status_, solve_status_;
+  // Iterative refinement: condensed-operator products, residual / candidate
+  // (B, n + p + m), device loop state [step, accept, correct, loop].
+  CudaBuffer<double> work_Px_, work_GTz_, work_Ax_, work_Gx_, norm_buf_;
+  CudaBuffer<double> ir_error_xyz_, ir_delta_xyz_, refine_rhs_norm_, refine_error_;
+  CudaBuffer<int32_t> refine_state_;
+  CudaPinnedBuffer<int32_t> if_flag_;  // host mirror for capture_if outside capture
+  const double* active_G_row_ = nullptr;  // data.active_G_row of the current IR call
+  const double* ir_rhs_y_ = nullptr;      // rhs.y of the current IR call
+  double* ir_lhs_x_ = nullptr;            // lhs.x of the current IR call
+  double* ir_lhs_y_ = nullptr;            // lhs.y of the current IR call
+  std::function<void(cudaStream_t)> ir_correct_, ir_first_step_, ir_later_step_;
 };
 
 }  // namespace cupiqp
