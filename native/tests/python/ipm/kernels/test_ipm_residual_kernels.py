@@ -112,7 +112,7 @@ def test_prepare_zu_minus_zl_and_zbu_minus_zbl(testing, case):
 
 
 @pytest.mark.parametrize("case", list(CASES))
-def test_update_residual_nr(testing, case):
+def test_update_residual_nr(testing, case, blocks_per_problem):
     def build():
         c = Case(case, 23)
         d = c.data()
@@ -158,7 +158,7 @@ def test_update_residual_nr(testing, case):
 
 
 @pytest.mark.parametrize("case", list(CASES))
-def test_update_residuals_r(testing, case):
+def test_update_residuals_r(testing, case, blocks_per_problem):
     def build():
         c = Case(case, 24)
         B = c.B
@@ -189,7 +189,7 @@ def test_update_residuals_r(testing, case):
 
 
 @pytest.mark.parametrize("case", ["B1_all_sides", "B3_hl_xu_no_eq"])
-def test_update_residuals_r_nonfinite(testing, case):
+def test_update_residuals_r_nonfinite(testing, case, blocks_per_problem):
     """NaN in the iterate: the max-norms use fmax (NaN ignored) as Warp does."""
     def build():
         c = Case(case, 25)

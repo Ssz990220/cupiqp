@@ -1,1 +1,2 @@
 cupiqp_add_test(test_ipm_kernels test_ipm_kernels.cu)
+cupiqp_add_test(test_ipm_multiblock_timing test_ipm_multiblock_timing.cu)

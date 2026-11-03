@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstdint>
 
+#include "common/multiblock.hpp"
 #include "common/reduce.cuh"
 #include "common/views.hpp"
 #include "ipm/kernels/ipm_kernels.hpp"
@@ -143,6 +144,18 @@ __device__ __forceinline__ void boundary_shift(RowsView<T> z_all, RowsView<T> fi
       z_all(b, k) = T(0);
     }
   }
+}
+
+// Blocks per problem and block size of a multi-block reduction launch over
+// rows of `width` elements carrying K values: the block size is the reference
+// reduction_block_dim of one block's slice (of the whole row when nb == 1).
+struct MbLaunch {
+  int nb;
+  int block;
+};
+inline MbLaunch mb_launch(const ReductionWorkspace& ws, int32_t B, int64_t width, int K) {
+  const int nb = blocks_per_problem(ws, B, width, K);
+  return {nb, multiblock_block_dim(width, nb)};
 }
 
 // Element-wise launch geometry (Warp launches use 256-thread blocks).

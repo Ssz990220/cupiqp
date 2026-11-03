@@ -422,10 +422,11 @@ def test_refinement_accept_add_rhs_norm(testing, rng, accept, n, p, m):
     assert_close(ref_n, nat_n, "rhs_norm")
 
 
+@pytest.mark.parametrize("blocks_per_problem", [0, 4, 64])
 @pytest.mark.parametrize("poison", [None, "nan", "inf", "-inf"])
 @pytest.mark.parametrize("where", ["x", "y", "z"])
 @pytest.mark.parametrize("n,p,m", SIZES)
-def test_solution_finite(testing, rng, poison, where, n, p, m):
+def test_solution_finite(testing, rng, poison, where, n, p, m, blocks_per_problem):
     vecs = {k: rng.standard_normal(sz) for k, sz in dict(x=n, y=p, z=m).items()}
     if poison is not None and vecs[where].size:
         vecs[where][rng.integers(vecs[where].size)] = float(poison)
@@ -435,7 +436,8 @@ def test_solution_finite(testing, rng, poison, where, n, p, m):
     wp.launch_tiled(kern, dim=[1], inputs=xs + [ref], block_dim=reduction_block_dim(n + p + m), device=DEV)
     nat = wp.full(1, 7, dtype=wp.int32, device=DEV)
     sync()
-    testing.kkt_solution_finite(n, p, m, *[ptr(a) for a in xs], ptr(nat, np.int32))
+    testing.kkt_solution_finite(n, p, m, *[ptr(a) for a in xs], ptr(nat, np.int32),
+                                blocks_per_problem=blocks_per_problem)
     testing.synchronize()
     np.testing.assert_array_equal(ref.numpy(), nat.numpy())
     expect = int(poison is not None and vecs[where].size > 0)
