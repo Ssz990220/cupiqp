@@ -15,7 +15,8 @@
 
 namespace cupiqp {
 
-// Bounds with |value| >= PIQP_INF are treated as infinite (absent).
+// Infinite bounds: a lower bound <= -PIQP_INF or an upper bound >= PIQP_INF is
+// absent (one-sided tests, as in the reference finite_bound_masks_kernel).
 inline constexpr double PIQP_INF = 1e20;
 
 // ---------------------------------------------------------------------------
