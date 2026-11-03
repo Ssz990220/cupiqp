@@ -1,0 +1,167 @@
+[trajopt_g0] n=241 p=64 m=6385 dim=6690 nnzK=173347
+[trajopt_g0] reduced: nnzP(lower)=697 nnzM=165745 potrf lwork=48
+[trajopt_g0] case 0: CUPIQP_SOLVED in 25 iterations
+  b_sparse+potrf       k= 1 rho=1.0e-06 delta=1.0e-04 potrf=0 resA=9.61e-17 resB=2.31e-16 resB_ir=2.40e-17 cwA=2.90e-13 cwB=9.44e-14 cwBir=1.21e-15 diff=2.26e-13 Lratio=1.5e+03 Hab=8.6e-16
+  a_dense_syrk+potrf   k= 1 rho=1.0e-06 delta=1.0e-04 potrf=0 resA=9.66e-17 resB=1.72e-16 resB_ir=3.08e-17 cwA=8.38e-13 cwB=3.37e-13 cwBir=1.55e-15 diff=1.73e-13 Lratio=1.5e+03 Hab=8.6e-16
+  b_sparse+tiled_chol  k= 1 rho=1.0e-06 delta=1.0e-04 potrf=0 resA=7.96e-17 resB=1.57e-16 resB_ir=2.59e-17 cwA=6.34e-13 cwB=9.49e-14 cwBir=1.30e-15 diff=1.60e-13 Lratio=1.5e+03 Hab=8.6e-16
+  b_sparse+potrf       k= 2 rho=1.0e-07 delta=1.0e-05 potrf=0 resA=1.20e-17 resB=6.19e-17 resB_ir=1.27e-18 cwA=1.72e-12 cwB=1.21e-13 cwBir=5.73e-16 diff=5.13e-14 Lratio=1.3e+04 Hab=1.2e-15
+  a_dense_syrk+potrf   k= 2 rho=1.0e-07 delta=1.0e-05 potrf=0 resA=1.20e-17 resB=8.90e-17 resB_ir=1.25e-18 cwA=1.91e-12 cwB=1.07e-12 cwBir=3.14e-16 diff=6.22e-14 Lratio=1.3e+04 Hab=1.2e-15
+  b_sparse+tiled_chol  k= 2 rho=1.0e-07 delta=1.0e-05 potrf=0 resA=1.20e-17 resB=5.45e-17 resB_ir=9.58e-19 cwA=1.85e-12 cwB=1.64e-13 cwBir=3.14e-16 diff=6.07e-14 Lratio=1.3e+04 Hab=1.2e-15
+  b_sparse+potrf       k= 3 rho=1.0e-08 delta=1.0e-06 potrf=0 resA=1.54e-16 resB=5.39e-16 resB_ir=2.82e-18 cwA=2.31e-12 cwB=1.75e-12 cwBir=6.65e-16 diff=4.05e-13 Lratio=3.3e+04 Hab=1.3e-15
+  a_dense_syrk+potrf   k= 3 rho=1.0e-08 delta=1.0e-06 potrf=0 resA=1.16e-16 resB=1.10e-15 resB_ir=2.40e-19 cwA=3.13e-12 cwB=5.90e-12 cwBir=4.35e-16 diff=1.19e-12 Lratio=3.3e+04 Hab=1.3e-15
+  b_sparse+tiled_chol  k= 3 rho=1.0e-08 delta=1.0e-06 potrf=0 resA=1.16e-16 resB=2.62e-16 resB_ir=3.68e-19 cwA=2.06e-12 cwB=1.15e-12 cwBir=3.32e-16 diff=2.93e-13 Lratio=3.3e+04 Hab=1.3e-15
+  b_sparse+potrf       k= 4 rho=1.0e-09 delta=1.0e-07 potrf=0 resA=1.31e-17 resB=5.76e-17 resB_ir=4.68e-19 cwA=1.64e-11 cwB=2.73e-13 cwBir=4.00e-16 diff=2.90e-14 Lratio=6.2e+04 Hab=8.2e-16
+  a_dense_syrk+potrf   k= 4 rho=1.0e-09 delta=1.0e-07 potrf=0 resA=1.31e-17 resB=1.26e-16 resB_ir=1.69e-18 cwA=7.31e-12 cwB=6.33e-13 cwBir=4.31e-16 diff=1.02e-13 Lratio=6.2e+04 Hab=8.2e-16
+  b_sparse+tiled_chol  k= 4 rho=1.0e-09 delta=1.0e-07 potrf=0 resA=1.30e-17 resB=4.73e-17 resB_ir=7.93e-20 cwA=9.29e-12 cwB=2.82e-13 cwBir=4.93e-16 diff=1.82e-14 Lratio=6.2e+04 Hab=8.2e-16
+  b_sparse+potrf       k= 5 rho=1.0e-10 delta=1.0e-08 potrf=0 resA=1.01e-17 resB=1.80e-17 resB_ir=1.54e-20 cwA=2.90e-11 cwB=1.35e-12 cwBir=3.13e-16 diff=9.53e-14 Lratio=1.9e+05 Hab=1.8e-15
+  a_dense_syrk+potrf   k= 5 rho=1.0e-10 delta=1.0e-08 potrf=0 resA=1.03e-17 resB=5.72e-17 resB_ir=1.51e-19 cwA=1.71e-11 cwB=3.32e-12 cwBir=2.79e-16 diff=3.46e-13 Lratio=1.9e+05 Hab=1.8e-15
+  b_sparse+tiled_chol  k= 5 rho=1.0e-10 delta=1.0e-08 potrf=0 resA=1.01e-17 resB=6.72e-18 resB_ir=4.40e-20 cwA=2.23e-11 cwB=1.45e-12 cwBir=2.53e-16 diff=5.32e-14 Lratio=1.9e+05 Hab=1.8e-15
+  b_sparse+potrf       k= 6 rho=1.0e-10 delta=1.0e-09 potrf=0 resA=1.70e-17 resB=3.77e-17 resB_ir=1.19e-19 cwA=8.72e-11 cwB=3.43e-12 cwBir=3.78e-16 diff=4.12e-13 Lratio=1.0e+06 Hab=1.5e-15
+  a_dense_syrk+potrf   k= 6 rho=1.0e-10 delta=1.0e-09 potrf=0 resA=1.70e-17 resB=2.78e-17 resB_ir=1.93e-19 cwA=9.13e-11 cwB=8.60e-12 cwBir=6.12e-16 diff=3.20e-13 Lratio=1.0e+06 Hab=1.5e-15
+  b_sparse+tiled_chol  k= 6 rho=1.0e-10 delta=1.0e-09 potrf=0 resA=1.70e-17 resB=2.30e-17 resB_ir=1.75e-19 cwA=3.33e-11 cwB=2.88e-12 cwBir=5.55e-16 diff=3.76e-13 Lratio=1.0e+06 Hab=1.5e-15
+  b_sparse+potrf       k= 7 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=4.24e-17 resB=7.73e-17 resB_ir=5.29e-20 cwA=1.13e-10 cwB=8.92e-12 cwBir=3.87e-16 diff=1.13e-12 Lratio=6.1e+06 Hab=1.0e-15
+  a_dense_syrk+potrf   k= 7 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=3.96e-17 resB=1.92e-16 resB_ir=1.12e-19 cwA=1.09e-10 cwB=2.80e-11 cwBir=5.54e-16 diff=6.33e-12 Lratio=6.1e+06 Hab=1.0e-15
+  b_sparse+tiled_chol  k= 7 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=4.15e-17 resB=6.72e-17 resB_ir=1.15e-20 cwA=1.18e-10 cwB=9.22e-12 cwBir=2.67e-16 diff=1.30e-12 Lratio=6.1e+06 Hab=1.0e-15
+  b_sparse+potrf       k= 8 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.98e-18 resB=3.32e-18 resB_ir=6.49e-22 cwA=3.52e-10 cwB=2.89e-11 cwBir=4.47e-16 diff=3.38e-13 Lratio=1.8e+07 Hab=1.2e-15
+  a_dense_syrk+potrf   k= 8 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.98e-18 resB=1.07e-17 resB_ir=3.71e-22 cwA=2.22e-10 cwB=8.16e-11 cwBir=4.87e-16 diff=1.36e-12 Lratio=1.8e+07 Hab=1.2e-15
+  b_sparse+tiled_chol  k= 8 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.89e-18 resB=2.80e-18 resB_ir=6.78e-22 cwA=3.71e-10 cwB=2.19e-11 cwBir=3.89e-16 diff=2.84e-13 Lratio=1.8e+07 Hab=1.2e-15
+  b_sparse+potrf       k= 9 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=3.64e-20 resB=2.53e-20 resB_ir=4.34e-22 cwA=1.42e-08 cwB=8.16e-11 cwBir=1.14e-15 diff=1.61e-13 Lratio=3.6e+08 Hab=7.8e-16
+  a_dense_syrk+potrf   k= 9 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=3.67e-20 resB=5.82e-20 resB_ir=4.38e-22 cwA=6.38e-09 cwB=2.96e-10 cwBir=1.43e-15 diff=1.66e-13 Lratio=3.6e+08 Hab=7.8e-16
+  b_sparse+tiled_chol  k= 9 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=3.53e-20 resB=1.57e-20 resB_ir=4.59e-22 cwA=8.26e-09 cwB=6.73e-11 cwBir=1.01e-15 diff=1.12e-13 Lratio=3.6e+08 Hab=7.8e-16
+  b_sparse+potrf       k=10 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.57e-20 resB=1.72e-20 resB_ir=1.94e-22 cwA=8.32e-07 cwB=6.92e-11 cwBir=4.16e-16 diff=8.82e-14 Lratio=4.9e+08 Hab=7.8e-16
+  a_dense_syrk+potrf   k=10 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.48e-20 resB=2.36e-20 resB_ir=2.23e-22 cwA=1.67e-06 cwB=1.88e-10 cwBir=6.72e-16 diff=1.31e-13 Lratio=4.9e+08 Hab=7.8e-16
+  b_sparse+tiled_chol  k=10 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.52e-20 resB=1.19e-20 resB_ir=2.04e-22 cwA=8.66e-07 cwB=6.93e-11 cwBir=2.61e-16 diff=8.75e-14 Lratio=4.9e+08 Hab=7.8e-16
+  b_sparse+potrf       k=11 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=7.19e-21 resB=1.44e-20 resB_ir=3.58e-23 cwA=3.44e-04 cwB=1.58e-10 cwBir=1.31e-15 diff=2.11e-13 Lratio=1.6e+09 Hab=1.0e-15
+  a_dense_syrk+potrf   k=11 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=6.05e-21 resB=2.28e-20 resB_ir=3.60e-23 cwA=1.95e-04 cwB=4.35e-10 cwBir=6.63e-16 diff=3.51e-13 Lratio=1.6e+09 Hab=1.0e-15
+  b_sparse+tiled_chol  k=11 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=5.58e-21 resB=9.19e-21 resB_ir=3.00e-23 cwA=1.46e-04 cwB=9.70e-11 cwBir=1.25e-15 diff=1.88e-13 Lratio=1.6e+09 Hab=1.0e-15
+  b_sparse+potrf       k=12 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.96e-19 resB=2.27e-19 resB_ir=8.69e-24 cwA=2.73e-04 cwB=6.48e-10 cwBir=3.90e-16 diff=1.34e-11 Lratio=4.9e+09 Hab=9.1e-16
+  a_dense_syrk+potrf   k=12 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.88e-19 resB=5.42e-19 resB_ir=1.33e-23 cwA=4.50e-04 cwB=1.55e-09 cwBir=5.21e-16 diff=2.57e-11 Lratio=4.9e+09 Hab=9.1e-16
+  b_sparse+tiled_chol  k=12 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.80e-19 resB=1.91e-19 resB_ir=1.07e-23 cwA=1.38e-03 cwB=5.47e-10 cwBir=9.77e-16 diff=1.53e-11 Lratio=4.9e+09 Hab=9.1e-16
+  b_sparse+potrf       k=13 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.89e-19 resB=6.01e-19 resB_ir=2.18e-24 cwA=1.18e-02 cwB=1.05e-08 cwBir=2.06e-15 diff=3.01e-10 Lratio=1.1e+10 Hab=1.0e-15
+  a_dense_syrk+potrf   k=13 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=4.42e-19 resB=2.04e-18 resB_ir=4.45e-24 cwA=1.03e-02 cwB=5.86e-08 cwBir=1.30e-15 diff=5.39e-10 Lratio=1.1e+10 Hab=1.0e-15
+  b_sparse+tiled_chol  k=13 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=3.52e-19 resB=8.56e-19 resB_ir=2.01e-24 cwA=6.43e-03 cwB=1.45e-08 cwBir=5.75e-16 diff=2.32e-10 Lratio=1.1e+10 Hab=1.0e-15
+  b_sparse+potrf       k=14 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=3.39e-17 resB=4.04e-17 resB_ir=2.21e-24 cwA=2.27e-02 cwB=1.34e-06 cwBir=7.24e-14 diff=7.93e-08 Lratio=1.5e+10 Hab=7.8e-16
+  a_dense_syrk+potrf   k=14 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=3.71e-17 resB=1.32e-16 resB_ir=3.04e-22 cwA=1.55e-02 cwB=6.47e-06 cwBir=1.15e-11 diff=3.11e-06 Lratio=1.5e+10 Hab=7.8e-16
+  b_sparse+tiled_chol  k=14 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=3.39e-17 resB=6.03e-17 resB_ir=2.31e-24 cwA=3.46e-03 cwB=1.78e-06 cwBir=6.83e-14 diff=2.09e-07 Lratio=1.5e+10 Hab=7.8e-16
+  b_sparse+potrf       k=15 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.11e-20 resB=5.03e-20 resB_ir=7.04e-25 cwA=1.95e-04 cwB=1.16e-08 cwBir=5.12e-16 diff=4.27e-11 Lratio=1.5e+10 Hab=9.7e-16
+  a_dense_syrk+potrf   k=15 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.14e-20 resB=1.41e-19 resB_ir=1.20e-24 cwA=1.10e-04 cwB=3.27e-08 cwBir=3.86e-16 diff=1.03e-10 Lratio=1.5e+10 Hab=9.7e-16
+  b_sparse+tiled_chol  k=15 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.27e-20 resB=1.05e-19 resB_ir=1.09e-24 cwA=1.25e-04 cwB=2.35e-08 cwBir=5.86e-16 diff=6.41e-11 Lratio=1.5e+10 Hab=9.7e-16
+  b_sparse+potrf       k=16 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=9.95e-21 resB=9.70e-21 resB_ir=6.55e-26 cwA=8.72e-04 cwB=3.22e-08 cwBir=6.37e-16 diff=1.02e-10 Lratio=3.7e+10 Hab=1.0e-15
+  a_dense_syrk+potrf   k=16 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=9.27e-21 resB=7.28e-20 resB_ir=9.44e-26 cwA=1.47e-03 cwB=2.51e-07 cwBir=1.54e-14 diff=9.76e-10 Lratio=3.7e+10 Hab=1.0e-15
+  b_sparse+tiled_chol  k=16 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=9.95e-21 resB=6.13e-21 resB_ir=4.73e-26 cwA=6.75e-04 cwB=2.11e-08 cwBir=9.86e-16 diff=1.00e-10 Lratio=3.7e+10 Hab=1.0e-15
+  b_sparse+potrf       k=17 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=6.02e-24 resB=1.76e-23 resB_ir=8.85e-27 cwA=1.61e-04 cwB=7.72e-10 cwBir=1.14e-15 diff=1.34e-12 Lratio=5.1e+10 Hab=9.1e-16
+  a_dense_syrk+potrf   k=17 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=6.02e-24 resB=3.49e-23 resB_ir=9.11e-27 cwA=1.61e-04 cwB=1.10e-09 cwBir=1.20e-15 diff=2.37e-12 Lratio=5.1e+10 Hab=9.1e-16
+  b_sparse+tiled_chol  k=17 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=6.02e-24 resB=9.98e-24 resB_ir=8.87e-27 cwA=1.13e-04 cwB=4.24e-10 cwBir=1.10e-15 diff=9.09e-13 Lratio=5.1e+10 Hab=9.1e-16
+  b_sparse+potrf       k=18 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.84e-25 resB=3.76e-25 resB_ir=2.00e-27 cwA=6.54e-04 cwB=4.18e-11 cwBir=1.07e-15 diff=1.27e-13 Lratio=5.5e+10 Hab=7.8e-16
+  a_dense_syrk+potrf   k=18 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=3.00e-25 resB=1.90e-24 resB_ir=1.79e-27 cwA=6.54e-04 cwB=1.05e-10 cwBir=9.72e-16 diff=2.53e-13 Lratio=5.5e+10 Hab=7.8e-16
+  b_sparse+tiled_chol  k=18 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.68e-25 resB=4.61e-25 resB_ir=1.96e-27 cwA=6.54e-04 cwB=5.27e-11 cwBir=1.20e-15 diff=1.73e-13 Lratio=5.5e+10 Hab=7.8e-16
+  b_sparse+potrf       k=19 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=9.02e-26 resB=3.41e-26 resB_ir=4.09e-28 cwA=2.79e-04 cwB=6.86e-12 cwBir=1.46e-15 diff=2.40e-13 Lratio=6.0e+10 Hab=9.1e-16
+  a_dense_syrk+potrf   k=19 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=9.45e-26 resB=1.07e-25 resB_ir=4.24e-28 cwA=3.66e-04 cwB=7.37e-12 cwBir=1.35e-15 diff=3.95e-13 Lratio=6.0e+10 Hab=9.1e-16
+  b_sparse+tiled_chol  k=19 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=9.45e-26 resB=5.99e-26 resB_ir=5.01e-28 cwA=2.79e-04 cwB=4.23e-12 cwBir=1.31e-15 diff=1.94e-13 Lratio=6.0e+10 Hab=9.1e-16
+  b_sparse+potrf       k=20 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.82e-25 resB=4.85e-26 resB_ir=9.02e-29 cwA=1.23e-03 cwB=4.60e-13 cwBir=1.42e-15 diff=8.52e-13 Lratio=6.2e+10 Hab=7.8e-16
+  a_dense_syrk+potrf   k=20 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.62e-25 resB=2.75e-25 resB_ir=1.09e-28 cwA=1.18e-03 cwB=8.06e-13 cwBir=1.32e-15 diff=1.93e-12 Lratio=6.2e+10 Hab=7.8e-16
+  b_sparse+tiled_chol  k=20 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.82e-25 resB=6.28e-26 resB_ir=8.85e-29 cwA=1.23e-03 cwB=4.70e-13 cwBir=1.80e-15 diff=1.50e-12 Lratio=6.2e+10 Hab=7.8e-16
+  b_sparse+potrf       k=21 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.85e-26 resB=6.63e-27 resB_ir=1.99e-30 cwA=3.35e-05 cwB=2.09e-12 cwBir=1.23e-15 diff=9.30e-12 Lratio=6.5e+10 Hab=7.8e-16
+  a_dense_syrk+potrf   k=21 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.04e-26 resB=1.48e-26 resB_ir=1.34e-30 cwA=3.35e-05 cwB=6.42e-12 cwBir=1.29e-15 diff=1.58e-11 Lratio=6.5e+10 Hab=7.8e-16
+  b_sparse+tiled_chol  k=21 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.95e-26 resB=8.66e-27 resB_ir=1.38e-30 cwA=3.35e-05 cwB=1.87e-12 cwBir=1.31e-15 diff=5.90e-12 Lratio=6.5e+10 Hab=7.8e-16
+  b_sparse+potrf       k=22 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=9.26e-28 resB=9.00e-28 resB_ir=2.94e-32 cwA=1.04e-06 cwB=1.69e-10 cwBir=8.18e-16 diff=6.70e-11 Lratio=7.8e+10 Hab=1.7e-16
+  a_dense_syrk+potrf   k=22 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=7.46e-28 resB=1.46e-27 resB_ir=2.92e-32 cwA=1.10e-06 cwB=3.42e-10 cwBir=9.07e-16 diff=3.30e-09 Lratio=7.8e+10 Hab=1.7e-16
+  b_sparse+tiled_chol  k=22 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=9.37e-28 resB=8.38e-28 resB_ir=2.92e-32 cwA=1.10e-06 cwB=1.32e-10 cwBir=8.26e-16 diff=5.24e-10 Lratio=7.8e+10 Hab=1.7e-16
+  b_sparse+potrf       k=23 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=5.96e-28 resB=1.40e-27 resB_ir=8.91e-34 cwA=1.64e-06 cwB=7.31e-09 cwBir=8.62e-16 diff=4.37e-08 Lratio=8.2e+10 Hab=1.1e-16
+  a_dense_syrk+potrf   k=23 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=5.96e-28 resB=3.49e-27 resB_ir=8.88e-34 cwA=1.64e-06 cwB=6.77e-09 cwBir=7.50e-16 diff=4.76e-08 Lratio=8.2e+10 Hab=1.1e-16
+  b_sparse+tiled_chol  k=23 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=5.96e-28 resB=1.17e-27 resB_ir=5.97e-34 cwA=1.64e-06 cwB=4.49e-09 cwBir=8.24e-16 diff=3.40e-08 Lratio=8.2e+10 Hab=1.1e-16
+  b_sparse+potrf       k=24 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=7.27e-27 resB=8.53e-27 resB_ir=8.72e-34 cwA=2.83e-07 cwB=2.77e-07 cwBir=6.03e-13 diff=6.73e-07 Lratio=8.3e+10 Hab=1.1e-16
+  a_dense_syrk+potrf   k=24 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=7.27e-27 resB=2.37e-27 resB_ir=1.11e-33 cwA=2.83e-07 cwB=2.29e-07 cwBir=6.82e-13 diff=4.38e-07 Lratio=8.3e+10 Hab=1.1e-16
+  b_sparse+tiled_chol  k=24 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=7.27e-27 resB=2.25e-27 resB_ir=1.69e-33 cwA=4.22e-07 cwB=4.34e-07 cwBir=2.38e-13 diff=8.29e-07 Lratio=8.3e+10 Hab=1.1e-16
+  b_sparse+potrf       k=25 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=4.63e-26 resB=1.24e-25 resB_ir=2.92e-31 cwA=2.80e-06 cwB=4.40e-06 cwBir=3.51e-11 diff=2.41e-06 Lratio=8.3e+10 Hab=2.2e-16
+  a_dense_syrk+potrf   k=25 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=4.63e-26 resB=3.79e-26 resB_ir=8.15e-32 cwA=1.83e-06 cwB=2.78e-06 cwBir=2.50e-11 diff=3.67e-06 Lratio=8.3e+10 Hab=2.2e-16
+  b_sparse+tiled_chol  k=25 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=4.63e-26 resB=7.26e-26 resB_ir=3.17e-31 cwA=2.66e-06 cwB=4.40e-06 cwBir=3.87e-11 diff=7.03e-06 Lratio=8.3e+10 Hab=2.2e-16
+[trajopt_g0] case 4: CUPIQP_SOLVED in 29 iterations
+  b_sparse+potrf       k= 1 rho=1.0e-06 delta=1.0e-04 potrf=0 resA=2.46e-17 resB=6.94e-17 resB_ir=5.34e-18 cwA=5.86e-13 cwB=5.89e-14 cwBir=5.27e-16 diff=7.18e-14 Lratio=1.0e+03 Hab=7.4e-16
+  a_dense_syrk+potrf   k= 1 rho=1.0e-06 delta=1.0e-04 potrf=0 resA=3.31e-17 resB=2.31e-16 resB_ir=9.32e-19 cwA=4.81e-13 cwB=1.07e-13 cwBir=4.79e-16 diff=2.89e-13 Lratio=1.0e+03 Hab=7.4e-16
+  b_sparse+tiled_chol  k= 1 rho=1.0e-06 delta=1.0e-04 potrf=0 resA=3.33e-17 resB=2.80e-17 resB_ir=1.24e-18 cwA=4.26e-13 cwB=1.13e-13 cwBir=4.38e-16 diff=3.07e-14 Lratio=1.0e+03 Hab=7.4e-16
+  b_sparse+potrf       k= 2 rho=1.0e-07 delta=1.0e-05 potrf=0 resA=9.01e-18 resB=4.81e-17 resB_ir=8.02e-19 cwA=2.31e-12 cwB=2.88e-13 cwBir=6.06e-16 diff=6.50e-14 Lratio=4.9e+03 Hab=1.2e-15
+  a_dense_syrk+potrf   k= 2 rho=1.0e-07 delta=1.0e-05 potrf=0 resA=9.01e-18 resB=1.05e-16 resB_ir=2.28e-18 cwA=1.21e-12 cwB=2.07e-13 cwBir=6.30e-16 diff=1.77e-13 Lratio=4.9e+03 Hab=1.2e-15
+  b_sparse+tiled_chol  k= 2 rho=1.0e-07 delta=1.0e-05 potrf=0 resA=9.07e-18 resB=3.24e-17 resB_ir=1.61e-18 cwA=1.46e-12 cwB=2.61e-13 cwBir=6.38e-16 diff=2.70e-14 Lratio=4.9e+03 Hab=1.2e-15
+  b_sparse+potrf       k= 3 rho=1.0e-08 delta=1.0e-06 potrf=0 resA=1.10e-17 resB=2.95e-17 resB_ir=5.40e-19 cwA=3.20e-12 cwB=7.15e-14 cwBir=3.84e-16 diff=1.80e-14 Lratio=2.9e+04 Hab=9.5e-16
+  a_dense_syrk+potrf   k= 3 rho=1.0e-08 delta=1.0e-06 potrf=0 resA=1.10e-17 resB=4.94e-17 resB_ir=4.02e-19 cwA=5.74e-13 cwB=1.07e-13 cwBir=3.00e-16 diff=5.91e-14 Lratio=2.9e+04 Hab=9.5e-16
+  b_sparse+tiled_chol  k= 3 rho=1.0e-08 delta=1.0e-06 potrf=0 resA=1.04e-17 resB=1.92e-17 resB_ir=5.42e-19 cwA=9.18e-13 cwB=5.48e-14 cwBir=3.41e-16 diff=1.38e-14 Lratio=2.9e+04 Hab=9.5e-16
+  b_sparse+potrf       k= 4 rho=1.0e-09 delta=1.0e-07 potrf=0 resA=1.82e-18 resB=1.69e-18 resB_ir=3.37e-19 cwA=8.41e-11 cwB=8.22e-14 cwBir=4.50e-16 diff=1.05e-14 Lratio=2.4e+04 Hab=1.0e-15
+  a_dense_syrk+potrf   k= 4 rho=1.0e-09 delta=1.0e-07 potrf=0 resA=1.83e-18 resB=9.24e-18 resB_ir=3.82e-19 cwA=2.18e-11 cwB=2.27e-13 cwBir=6.01e-16 diff=7.44e-14 Lratio=2.4e+04 Hab=1.0e-15
+  b_sparse+tiled_chol  k= 4 rho=1.0e-09 delta=1.0e-07 potrf=0 resA=1.83e-18 resB=1.88e-18 resB_ir=3.91e-19 cwA=2.77e-12 cwB=5.35e-14 cwBir=5.21e-16 diff=8.12e-15 Lratio=2.4e+04 Hab=1.0e-15
+  b_sparse+potrf       k= 5 rho=1.0e-10 delta=1.0e-08 potrf=0 resA=2.16e-18 resB=5.09e-18 resB_ir=2.98e-19 cwA=2.35e-10 cwB=2.50e-13 cwBir=6.44e-16 diff=4.34e-14 Lratio=7.2e+04 Hab=1.0e-15
+  a_dense_syrk+potrf   k= 5 rho=1.0e-10 delta=1.0e-08 potrf=0 resA=2.32e-18 resB=1.15e-17 resB_ir=7.23e-20 cwA=6.34e-11 cwB=5.67e-13 cwBir=2.47e-16 diff=7.24e-14 Lratio=7.2e+04 Hab=1.0e-15
+  b_sparse+tiled_chol  k= 5 rho=1.0e-10 delta=1.0e-08 potrf=0 resA=2.69e-18 resB=3.74e-18 resB_ir=2.97e-19 cwA=1.43e-10 cwB=1.84e-13 cwBir=6.40e-16 diff=3.79e-14 Lratio=7.2e+04 Hab=1.0e-15
+  b_sparse+potrf       k= 6 rho=1.0e-10 delta=1.0e-09 potrf=0 resA=3.76e-18 resB=5.24e-18 resB_ir=1.17e-19 cwA=6.23e-10 cwB=5.77e-13 cwBir=5.20e-16 diff=7.81e-14 Lratio=3.5e+05 Hab=8.1e-16
+  a_dense_syrk+potrf   k= 6 rho=1.0e-10 delta=1.0e-09 potrf=0 resA=3.40e-18 resB=2.28e-17 resB_ir=3.60e-21 cwA=5.72e-11 cwB=1.92e-12 cwBir=2.60e-16 diff=6.93e-13 Lratio=3.5e+05 Hab=8.1e-16
+  b_sparse+tiled_chol  k= 6 rho=1.0e-10 delta=1.0e-09 potrf=0 resA=3.27e-18 resB=4.59e-18 resB_ir=6.10e-20 cwA=7.38e-10 cwB=4.20e-13 cwBir=3.72e-16 diff=8.11e-14 Lratio=3.5e+05 Hab=8.1e-16
+  b_sparse+potrf       k= 7 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=7.88e-18 resB=2.88e-17 resB_ir=6.74e-20 cwA=1.41e-09 cwB=2.38e-12 cwBir=4.07e-16 diff=9.36e-13 Lratio=1.8e+06 Hab=7.8e-16
+  a_dense_syrk+potrf   k= 7 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=9.47e-18 resB=3.46e-17 resB_ir=9.13e-20 cwA=9.66e-10 cwB=4.20e-12 cwBir=5.52e-16 diff=1.16e-12 Lratio=1.8e+06 Hab=7.8e-16
+  b_sparse+tiled_chol  k= 7 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=8.50e-18 resB=2.63e-17 resB_ir=7.31e-20 cwA=5.30e-10 cwB=2.25e-12 cwBir=4.42e-16 diff=7.89e-13 Lratio=1.8e+06 Hab=7.8e-16
+  b_sparse+potrf       k= 8 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=7.57e-18 resB=6.74e-18 resB_ir=1.73e-20 cwA=5.32e-10 cwB=4.23e-12 cwBir=2.72e-16 diff=3.20e-13 Lratio=1.7e+06 Hab=9.0e-16
+  a_dense_syrk+potrf   k= 8 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=6.91e-18 resB=1.65e-17 resB_ir=1.43e-20 cwA=3.01e-10 cwB=2.45e-12 cwBir=4.13e-16 diff=1.35e-12 Lratio=1.7e+06 Hab=9.0e-16
+  b_sparse+tiled_chol  k= 8 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=7.92e-18 resB=5.89e-18 resB_ir=3.58e-20 cwA=8.22e-10 cwB=3.45e-12 cwBir=5.65e-16 diff=3.67e-13 Lratio=1.7e+06 Hab=9.0e-16
+  b_sparse+potrf       k= 9 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.64e-18 resB=5.25e-18 resB_ir=6.02e-21 cwA=1.87e-09 cwB=2.91e-12 cwBir=4.68e-16 diff=1.27e-12 Lratio=3.9e+06 Hab=1.0e-15
+  a_dense_syrk+potrf   k= 9 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.63e-18 resB=9.10e-18 resB_ir=4.21e-21 cwA=6.25e-10 cwB=7.21e-12 cwBir=4.54e-16 diff=3.66e-12 Lratio=3.9e+06 Hab=1.0e-15
+  b_sparse+tiled_chol  k= 9 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.64e-18 resB=3.21e-18 resB_ir=2.31e-21 cwA=1.31e-09 cwB=2.06e-12 cwBir=3.39e-16 diff=7.75e-13 Lratio=3.9e+06 Hab=1.0e-15
+  b_sparse+potrf       k=10 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.29e-18 resB=1.72e-18 resB_ir=4.79e-22 cwA=5.81e-10 cwB=3.52e-12 cwBir=1.43e-15 diff=3.93e-12 Lratio=1.6e+07 Hab=8.4e-16
+  a_dense_syrk+potrf   k=10 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.08e-18 resB=3.44e-18 resB_ir=2.94e-22 cwA=8.86e-10 cwB=1.04e-11 cwBir=5.59e-16 diff=7.41e-12 Lratio=1.6e+07 Hab=8.4e-16
+  b_sparse+tiled_chol  k=10 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.29e-18 resB=1.77e-18 resB_ir=2.10e-22 cwA=1.31e-09 cwB=3.87e-12 cwBir=4.35e-16 diff=3.66e-12 Lratio=1.6e+07 Hab=8.4e-16
+  b_sparse+potrf       k=11 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.25e-19 resB=3.55e-19 resB_ir=1.98e-23 cwA=5.99e-08 cwB=9.13e-11 cwBir=5.37e-16 diff=5.19e-12 Lratio=2.6e+08 Hab=1.2e-15
+  a_dense_syrk+potrf   k=11 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.10e-19 resB=9.17e-19 resB_ir=1.53e-23 cwA=4.79e-08 cwB=1.55e-10 cwBir=4.80e-16 diff=4.61e-11 Lratio=2.6e+08 Hab=1.2e-15
+  b_sparse+tiled_chol  k=11 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.25e-19 resB=1.39e-19 resB_ir=2.10e-23 cwA=6.37e-08 cwB=9.73e-11 cwBir=3.86e-16 diff=7.24e-12 Lratio=2.6e+08 Hab=1.2e-15
+  b_sparse+potrf       k=12 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=8.44e-20 resB=3.85e-20 resB_ir=2.98e-24 cwA=2.45e-05 cwB=2.02e-11 cwBir=3.37e-16 diff=2.14e-11 Lratio=2.9e+09 Hab=9.7e-16
+  a_dense_syrk+potrf   k=12 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=8.53e-20 resB=5.58e-20 resB_ir=3.58e-24 cwA=1.70e-04 cwB=3.85e-11 cwBir=3.30e-16 diff=5.33e-11 Lratio=2.9e+09 Hab=9.7e-16
+  b_sparse+tiled_chol  k=12 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=8.42e-20 resB=4.53e-20 resB_ir=8.77e-24 cwA=7.60e-05 cwB=1.45e-11 cwBir=4.89e-16 diff=7.12e-11 Lratio=2.9e+09 Hab=9.7e-16
+  b_sparse+potrf       k=13 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.19e-21 resB=3.74e-21 resB_ir=6.49e-25 cwA=5.77e-04 cwB=5.88e-12 cwBir=2.93e-16 diff=6.93e-12 Lratio=1.1e+10 Hab=1.2e-15
+  a_dense_syrk+potrf   k=13 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.24e-21 resB=1.09e-20 resB_ir=4.76e-25 cwA=1.96e-04 cwB=3.29e-11 cwBir=3.19e-16 diff=4.38e-11 Lratio=1.1e+10 Hab=1.2e-15
+  b_sparse+tiled_chol  k=13 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.28e-21 resB=3.72e-21 resB_ir=6.36e-25 cwA=2.01e-04 cwB=1.57e-11 cwBir=3.94e-16 diff=6.60e-12 Lratio=1.1e+10 Hab=1.2e-15
+  b_sparse+potrf       k=14 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.61e-21 resB=9.10e-21 resB_ir=9.07e-26 cwA=1.89e-03 cwB=7.03e-11 cwBir=3.47e-16 diff=1.41e-10 Lratio=2.5e+10 Hab=8.4e-16
+  a_dense_syrk+potrf   k=14 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.43e-21 resB=4.40e-20 resB_ir=3.99e-25 cwA=5.72e-04 cwB=2.82e-10 cwBir=7.13e-16 diff=4.63e-10 Lratio=2.5e+10 Hab=8.4e-16
+  b_sparse+tiled_chol  k=14 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.73e-21 resB=7.38e-21 resB_ir=2.13e-25 cwA=1.74e-03 cwB=4.77e-11 cwBir=3.90e-16 diff=1.10e-10 Lratio=2.5e+10 Hab=8.4e-16
+  b_sparse+potrf       k=15 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.44e-19 resB=5.71e-19 resB_ir=9.87e-26 cwA=1.83e-03 cwB=2.22e-08 cwBir=7.37e-16 diff=3.24e-08 Lratio=3.5e+10 Hab=1.2e-15
+  a_dense_syrk+potrf   k=15 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.44e-19 resB=4.24e-18 resB_ir=2.63e-25 cwA=4.07e-03 cwB=1.65e-07 cwBir=1.03e-14 diff=2.55e-07 Lratio=3.5e+10 Hab=1.2e-15
+  b_sparse+tiled_chol  k=15 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.39e-19 resB=6.41e-19 resB_ir=9.59e-26 cwA=1.69e-03 cwB=2.50e-08 cwBir=7.16e-16 diff=3.45e-08 Lratio=3.5e+10 Hab=1.2e-15
+  b_sparse+potrf       k=16 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.14e-19 resB=7.30e-19 resB_ir=3.82e-26 cwA=6.52e-04 cwB=2.46e-08 cwBir=4.18e-16 diff=2.11e-08 Lratio=3.1e+10 Hab=9.1e-16
+  a_dense_syrk+potrf   k=16 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.89e-19 resB=1.60e-18 resB_ir=3.16e-26 cwA=9.16e-04 cwB=3.93e-08 cwBir=1.27e-15 diff=4.88e-08 Lratio=3.1e+10 Hab=9.1e-16
+  b_sparse+tiled_chol  k=16 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.14e-19 resB=5.38e-19 resB_ir=2.97e-26 cwA=9.74e-04 cwB=1.57e-08 cwBir=2.94e-16 diff=1.93e-08 Lratio=3.1e+10 Hab=9.1e-16
+  b_sparse+potrf       k=17 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=5.66e-19 resB=1.16e-18 resB_ir=1.60e-26 cwA=4.87e-04 cwB=4.00e-07 cwBir=2.79e-15 diff=7.25e-08 Lratio=4.0e+10 Hab=1.2e-15
+  a_dense_syrk+potrf   k=17 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=5.66e-19 resB=2.65e-18 resB_ir=6.30e-26 cwA=8.80e-04 cwB=4.31e-07 cwBir=1.02e-14 diff=5.40e-07 Lratio=4.0e+10 Hab=1.2e-15
+  b_sparse+tiled_chol  k=17 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=5.66e-19 resB=7.19e-19 resB_ir=1.32e-26 cwA=4.00e-04 cwB=2.47e-07 cwBir=1.41e-15 diff=1.04e-07 Lratio=4.0e+10 Hab=1.2e-15
+  b_sparse+potrf       k=18 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.38e-20 resB=4.74e-20 resB_ir=5.02e-27 cwA=2.07e-03 cwB=4.11e-08 cwBir=4.47e-16 diff=2.13e-08 Lratio=4.5e+10 Hab=7.8e-16
+  a_dense_syrk+potrf   k=18 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.38e-20 resB=2.05e-19 resB_ir=5.06e-27 cwA=2.57e-03 cwB=1.29e-07 cwBir=2.66e-15 diff=7.88e-08 Lratio=4.5e+10 Hab=7.8e-16
+  b_sparse+tiled_chol  k=18 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.45e-20 resB=3.25e-20 resB_ir=3.74e-27 cwA=2.80e-03 cwB=2.45e-08 cwBir=2.95e-16 diff=2.37e-08 Lratio=4.5e+10 Hab=7.8e-16
+  b_sparse+potrf       k=19 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=6.50e-22 resB=2.38e-21 resB_ir=5.09e-28 cwA=1.33e-03 cwB=2.50e-08 cwBir=3.34e-16 diff=4.45e-09 Lratio=5.3e+10 Hab=1.3e-15
+  a_dense_syrk+potrf   k=19 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=6.51e-22 resB=1.20e-20 resB_ir=1.29e-27 cwA=1.59e-02 cwB=7.78e-08 cwBir=5.19e-16 diff=1.86e-08 Lratio=5.3e+10 Hab=1.3e-15
+  b_sparse+tiled_chol  k=19 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=6.51e-22 resB=1.79e-21 resB_ir=1.18e-27 cwA=1.69e-02 cwB=4.53e-08 cwBir=4.75e-16 diff=4.25e-09 Lratio=5.3e+10 Hab=1.3e-15
+  b_sparse+potrf       k=20 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=5.31e-23 resB=1.44e-22 resB_ir=1.44e-28 cwA=1.63e-02 cwB=8.44e-09 cwBir=4.18e-16 diff=8.58e-10 Lratio=6.0e+10 Hab=7.8e-16
+  a_dense_syrk+potrf   k=20 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=5.86e-23 resB=3.29e-22 resB_ir=1.98e-28 cwA=8.10e-03 cwB=1.85e-08 cwBir=6.17e-16 diff=1.40e-09 Lratio=6.0e+10 Hab=7.8e-16
+  b_sparse+tiled_chol  k=20 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=4.75e-23 resB=1.17e-22 resB_ir=1.48e-28 cwA=1.71e-02 cwB=3.36e-08 cwBir=3.53e-16 diff=8.05e-10 Lratio=6.0e+10 Hab=7.8e-16
+  b_sparse+potrf       k=21 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.64e-23 resB=5.32e-23 resB_ir=7.57e-29 cwA=1.19e-02 cwB=1.13e-09 cwBir=3.11e-16 diff=9.51e-10 Lratio=5.5e+10 Hab=7.8e-16
+  a_dense_syrk+potrf   k=21 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.65e-23 resB=3.87e-22 resB_ir=9.70e-29 cwA=3.77e-03 cwB=2.17e-09 cwBir=4.81e-16 diff=1.67e-09 Lratio=5.5e+10 Hab=7.8e-16
+  b_sparse+tiled_chol  k=21 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.67e-23 resB=6.84e-23 resB_ir=1.60e-28 cwA=9.36e-03 cwB=1.35e-09 cwBir=4.46e-16 diff=5.31e-10 Lratio=5.5e+10 Hab=7.8e-16
+  b_sparse+potrf       k=22 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.35e-23 resB=1.05e-23 resB_ir=2.94e-29 cwA=1.14e-02 cwB=6.68e-10 cwBir=5.20e-16 diff=2.93e-09 Lratio=5.5e+10 Hab=1.3e-15
+  a_dense_syrk+potrf   k=22 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.39e-23 resB=2.51e-23 resB_ir=4.50e-29 cwA=2.00e-02 cwB=1.99e-09 cwBir=6.72e-16 diff=5.57e-09 Lratio=5.5e+10 Hab=1.3e-15
+  b_sparse+tiled_chol  k=22 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.39e-23 resB=1.31e-23 resB_ir=2.75e-29 cwA=7.97e-03 cwB=1.29e-09 cwBir=2.82e-16 diff=2.86e-09 Lratio=5.5e+10 Hab=1.3e-15
+  b_sparse+potrf       k=23 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=8.47e-25 resB=7.69e-25 resB_ir=4.68e-30 cwA=4.22e-02 cwB=1.90e-09 cwBir=2.81e-16 diff=2.57e-09 Lratio=5.4e+10 Hab=6.5e-16
+  a_dense_syrk+potrf   k=23 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=9.71e-25 resB=2.31e-24 resB_ir=7.76e-30 cwA=1.82e-02 cwB=4.02e-09 cwBir=3.58e-16 diff=3.67e-09 Lratio=5.4e+10 Hab=6.5e-16
+  b_sparse+tiled_chol  k=23 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=8.24e-25 resB=3.71e-25 resB_ir=4.37e-30 cwA=3.04e-02 cwB=1.98e-09 cwBir=3.82e-16 diff=3.91e-09 Lratio=5.4e+10 Hab=6.5e-16
+  b_sparse+potrf       k=24 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.06e-24 resB=2.54e-24 resB_ir=1.12e-30 cwA=7.68e-02 cwB=1.03e-09 cwBir=8.95e-16 diff=4.04e-08 Lratio=5.1e+10 Hab=9.1e-16
+  a_dense_syrk+potrf   k=24 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.51e-24 resB=3.97e-24 resB_ir=1.46e-30 cwA=1.71e-01 cwB=4.35e-09 cwBir=4.85e-15 diff=5.68e-08 Lratio=5.1e+10 Hab=9.1e-16
+  b_sparse+tiled_chol  k=24 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.33e-24 resB=2.27e-24 resB_ir=1.23e-30 cwA=2.61e-01 cwB=1.70e-09 cwBir=4.85e-16 diff=4.21e-08 Lratio=5.1e+10 Hab=9.1e-16
+  b_sparse+potrf       k=25 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=4.33e-25 resB=1.73e-25 resB_ir=8.36e-31 cwA=3.25e-01 cwB=2.62e-08 cwBir=3.62e-15 diff=1.52e-07 Lratio=5.0e+10 Hab=7.8e-16
+  a_dense_syrk+potrf   k=25 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=4.35e-25 resB=7.17e-25 resB_ir=1.43e-30 cwA=4.56e-01 cwB=1.79e-08 cwBir=3.02e-14 diff=1.54e-07 Lratio=5.0e+10 Hab=7.8e-16
+  b_sparse+tiled_chol  k=25 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=4.29e-25 resB=2.50e-25 resB_ir=7.14e-31 cwA=2.91e-01 cwB=4.41e-08 cwBir=7.33e-15 diff=1.69e-07 Lratio=5.0e+10 Hab=7.8e-16
+  b_sparse+potrf       k=26 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.98e-25 resB=1.86e-25 resB_ir=1.39e-31 cwA=7.92e-02 cwB=3.78e-08 cwBir=2.83e-14 diff=5.86e-07 Lratio=4.9e+10 Hab=7.8e-16
+  a_dense_syrk+potrf   k=26 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=3.16e-25 resB=2.91e-25 resB_ir=5.93e-31 cwA=1.54e-01 cwB=6.03e-08 cwBir=1.65e-13 diff=1.39e-06 Lratio=4.9e+10 Hab=7.8e-16
+  b_sparse+tiled_chol  k=26 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=3.50e-25 resB=2.46e-25 resB_ir=1.16e-30 cwA=1.35e-01 cwB=5.10e-08 cwBir=2.40e-13 diff=6.44e-07 Lratio=4.9e+10 Hab=7.8e-16
+  b_sparse+potrf       k=27 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.04e-26 resB=1.26e-26 resB_ir=1.17e-31 cwA=1.00e+00 cwB=2.12e-07 cwBir=1.25e-12 diff=2.88e-06 Lratio=4.7e+10 Hab=3.9e-16
+  a_dense_syrk+potrf   k=27 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=2.14e-26 resB=2.17e-26 resB_ir=8.41e-31 cwA=9.34e-01 cwB=2.74e-07 cwBir=1.03e-11 diff=1.16e-05 Lratio=4.7e+10 Hab=3.9e-16
+  b_sparse+tiled_chol  k=27 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=1.59e-26 resB=1.87e-26 resB_ir=1.22e-31 cwA=9.40e-01 cwB=2.90e-07 cwBir=1.25e-12 diff=3.00e-06 Lratio=4.7e+10 Hab=3.9e-16
+  b_sparse+potrf       k=28 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=3.10e-27 resB=3.42e-27 resB_ir=3.55e-31 cwA=3.97e-01 cwB=8.24e-07 cwBir=3.73e-11 diff=1.72e-05 Lratio=4.6e+10 Hab=4.3e-16
+  a_dense_syrk+potrf   k=28 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=3.70e-27 resB=4.35e-27 resB_ir=1.88e-31 cwA=4.77e-02 cwB=9.36e-07 cwBir=2.67e-11 diff=1.69e-05 Lratio=4.6e+10 Hab=4.3e-16
+  b_sparse+tiled_chol  k=28 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=3.08e-27 resB=2.86e-27 resB_ir=7.95e-32 cwA=4.74e-01 cwB=7.72e-07 cwBir=1.22e-11 diff=1.46e-05 Lratio=4.6e+10 Hab=4.3e-16
+  b_sparse+potrf       k=29 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=4.26e-27 resB=3.09e-27 resB_ir=1.61e-31 cwA=2.94e-03 cwB=1.62e-06 cwBir=5.62e-11 diff=2.21e-05 Lratio=5.7e+10 Hab=3.2e-16
+  a_dense_syrk+potrf   k=29 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=4.71e-27 resB=4.37e-27 resB_ir=2.74e-31 cwA=3.18e-03 cwB=1.22e-06 cwBir=3.74e-11 diff=3.34e-05 Lratio=5.7e+10 Hab=3.2e-16
+  b_sparse+tiled_chol  k=29 rho=1.0e-10 delta=1.0e-10 potrf=0 resA=4.16e-27 resB=3.34e-27 resB_ir=2.44e-31 cwA=3.26e-03 cwB=1.94e-06 cwBir=4.23e-11 diff=5.46e-05 Lratio=5.7e+10 Hab=3.2e-16
+[trajopt_g0] done
