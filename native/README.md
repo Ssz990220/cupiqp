@@ -1,5 +1,7 @@
 # cuPIQP native
 
+Results, benchmark commands and status: [`docs/REPORT.md`](docs/REPORT.md).
+
 Native CUDA C++ port of the cuPIQP sparse solver (milestone 1: sparse, FP64,
 batch size 1, fixed sparsity, repeated numeric updates). The pinned Python/Warp
 implementation in `../cupiqp/` (commit `d538dda`) is the numerical reference.
@@ -21,7 +23,8 @@ implementation in `../cupiqp/` (commit `d538dda`) is the numerical reference.
 | `tests/cpp/`, `tests/python/` | module tests, mirroring `src/` |
 | `bench/` | native benchmarks |
 | `poc/` | feasibility proofs of concept |
-| `docs/design/` | feasibility, design, dependency graph |
+| `docs/design/` | feasibility, design, dependency graph, deviations |
+| `docs/REPORT.md` | milestone 1 results and how to reproduce them |
 | `docs/briefs/` | briefs for module agents |
 | `docs/modules/` | per-module hand-off notes |
 
