@@ -180,10 +180,44 @@ See `native/docs/design/DEVIATIONS.md`. In short:
   compute-sanitizer on WSL.
 
 Possible next steps:
-- Capture `update()` into a graph (about 0.18 ms; needs inputs at fixed
-  addresses).
 - cuDSS `REFACTORIZATION` was evaluated: no speedup with this configuration
   (FEASIBILITY.md 3.8).
 - Batching via cuDSS uniform batches.
 - FP32 after FP64 parity.
 - A JAX FFI binding (design section 9).
+
+## 9. Staged (preallocated) inputs (added 2026-11-03)
+
+`input_buffers()` / `host_input_buffers()` expose solver-owned device and
+pinned host input buffers, allocated at setup at fixed addresses.
+`update_staged(blocks, from_host)` replays the whole update as one CUDA graph,
+including the host-to-device copy for pinned host inputs. The default
+iteration-graph mode now also runs the solve prelude and finalization as
+graphs, which removes one host sync per solve.
+
+Same-session comparison (`native/bench/results/staged-20261103`, 20 repeats,
+every configuration 1,920/1,920 (MPC) and 960/960 (Trajopt) KKT@1e-6,
+iterations unchanged). Update, median ms:
+
+| | MPC gpu_resident | MPC host_values (incl. H2D) | Trajopt gpu_resident | Trajopt host_values (incl. H2D) |
+|---|---|---|---|---|
+| Reference | 3.18 | 3.20 | 4.25 | 4.26 |
+| Native `update()` | 0.90 | 0.97 | 0.63 | 0.67 |
+| Native `update_staged()` | 0.75 | 0.87 | 0.44 | 0.53 |
+
+End to end, median / P95 ms, gpu_resident:
+
+| | MPC | Trajopt |
+|---|---|---|
+| Reference | 40.21 / 43.98 | 55.39 / 65.89 |
+| Native default | 37.92 / 41.24 | 48.93 / 58.03 |
+| Native staged | 38.00 / 43.10 | 49.80 / 59.03 |
+| Native staged + whole-solve graph + custom SpMV | 32.56 / 37.12 | 42.45 / 49.85 |
+
+The staged update saves 0.15-0.19 ms per update. That is smaller than the
+run-to-run spread of the solve phase, so it does not show in the end-to-end
+medians.
+
+Trajopt ran slower overall in this session than in section 4 (the reference
+went from 50.5 to 55.4 ms). Compare configurations within one session only;
+the harness records GPU telemetry for each run.

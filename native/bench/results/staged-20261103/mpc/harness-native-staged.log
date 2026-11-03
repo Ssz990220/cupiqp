@@ -1,0 +1,27 @@
+Warp 1.19.0 initialized:
+   CUDA Toolkit 13.4, Driver 13.3
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 4070 SUPER" (12 GiB, sm_89, mempool enabled)
+   Kernel cache:
+     /home/sizhe/.cache/warp-cupiqp-native/1.19.0
+Completed replay 1/20; timed transitions=96
+Completed replay 2/20; timed transitions=192
+Completed replay 3/20; timed transitions=288
+Completed replay 4/20; timed transitions=384
+Completed replay 5/20; timed transitions=480
+Completed replay 6/20; timed transitions=576
+Completed replay 7/20; timed transitions=672
+Completed replay 8/20; timed transitions=768
+Completed replay 9/20; timed transitions=864
+Completed replay 10/20; timed transitions=960
+Completed replay 11/20; timed transitions=1056
+Completed replay 12/20; timed transitions=1152
+Completed replay 13/20; timed transitions=1248
+Completed replay 14/20; timed transitions=1344
+Completed replay 15/20; timed transitions=1440
+Completed replay 16/20; timed transitions=1536
+Completed replay 17/20; timed transitions=1632
+Completed replay 18/20; timed transitions=1728
+Completed replay 19/20; timed transitions=1824
+Completed replay 20/20; timed transitions=1920
