@@ -2,6 +2,8 @@
 
 #include <cuda_runtime.h>
 
+#include <exception>
+
 #include "common/check.hpp"
 
 namespace cupiqp {
@@ -83,22 +85,24 @@ void sync_stream(cudaStream_t s, Counters* counters) {
   if (counters) ++counters->host_syncs;
 }
 
-void capture_while(LoopContext& ctx, cudaStream_t s, const int32_t* cond,
-                   const std::function<void(cudaStream_t)>& body) {
-  if (!is_capturing(s)) {
-    int32_t* flag = ctx.host_flag(0);
-    for (;;) {
-      CUPIQP_CUDA_CHECK(cudaMemcpyAsync(flag, cond, sizeof(int32_t), cudaMemcpyDeviceToHost, s));
-      sync_stream(s, ctx.counters());
-      if (*flag == 0) break;
-      body(s);
-    }
-    return;
-  }
+namespace {
 
+// Record a conditional node (WHILE or IF) on `s`, which is capturing; see the
+// header for the suspend/resume scheme.
+void capture_conditional(LoopContext& ctx, cudaStream_t s, const int32_t* cond,
+                         cudaGraphConditionalNodeType type,
+                         const std::function<void(cudaStream_t)>& body) {
+  // The body is captured on the SAME stream: suspend the
+  // enclosing capture (end it; the graph object stays valid), capture the body
+  // into the conditional node's body graph, then resume the enclosing capture
+  // after the node with cudaStreamBeginCaptureToGraph. Streams that joined the
+  // enclosing capture through events (e.g. the cuDSS execution stream) leave it
+  // when it is suspended, so they can join the body capture; a helper-stream
+  // body would merge two captures and break.
   CUPIQP_REQUIRE(ctx.depth < LoopContext::kMaxDepth, "capture_while nesting too deep");
   cudaStreamCaptureStatus status;
   cudaGraph_t graph = nullptr;
+  cudaStreamCaptureMode mode = cudaStreamCaptureModeThreadLocal;
   CUPIQP_CUDA_CHECK(cudaStreamGetCaptureInfo(s, &status, nullptr, &graph, nullptr, nullptr, nullptr));
 
   cudaGraphConditionalHandle handle;
@@ -115,31 +119,68 @@ void capture_while(LoopContext& ctx, cudaStream_t s, const int32_t* cond,
   cudaGraphNodeParams params{};
   params.type = cudaGraphNodeTypeConditional;
   params.conditional.handle = handle;
-  params.conditional.type = cudaGraphCondTypeWhile;
+  params.conditional.type = type;
   params.conditional.size = 1;
   cudaGraphNode_t node;
   CUPIQP_CUDA_CHECK(cudaGraphAddNode(&node, graph, deps, edges, ndeps, &params));
-  CUPIQP_CUDA_CHECK(cudaStreamUpdateCaptureDependencies(s, &node, nullptr, 1, cudaStreamSetCaptureDependencies));
-
   cudaGraph_t body_graph = params.conditional.phGraph_out[0];
-  cudaStream_t h = ctx.helper(ctx.depth);
-  CUPIQP_CUDA_CHECK(cudaStreamBeginCaptureToGraph(h, body_graph, nullptr, nullptr, 0,
-                                                  cudaStreamCaptureModeThreadLocal));
+
+  // Suspend the enclosing capture.
+  cudaGraph_t suspended = nullptr;
+  CUPIQP_CUDA_CHECK(cudaStreamEndCapture(s, &suspended));
+  CUPIQP_REQUIRE(suspended == graph, "capture_while: unexpected graph on suspend");
+
+  CUPIQP_CUDA_CHECK(cudaStreamBeginCaptureToGraph(s, body_graph, nullptr, nullptr, 0, mode));
   ++ctx.depth;
+  std::exception_ptr err;
   try {
-    body(h);
-    set_condition_kernel<<<1, 1, 0, h>>>(handle, cond);
-    CUPIQP_CUDA_CHECK_LAUNCH();
+    body(s);
+    if (type == cudaGraphCondTypeWhile) {  // re-evaluate for the next pass
+      set_condition_kernel<<<1, 1, 0, s>>>(handle, cond);
+      CUPIQP_CUDA_CHECK_LAUNCH();
+    }
   } catch (...) {
-    --ctx.depth;
-    cudaGraph_t dummy;
-    cudaStreamEndCapture(h, &dummy);
-    cudaGetLastError();
-    throw;
+    err = std::current_exception();
   }
   --ctx.depth;
   cudaGraph_t out = nullptr;
-  CUPIQP_CUDA_CHECK(cudaStreamEndCapture(h, &out));
+  cudaError_t end_err = cudaStreamEndCapture(s, &out);
+  // Resume the enclosing capture after the conditional node.
+  CUPIQP_CUDA_CHECK(cudaStreamBeginCaptureToGraph(s, graph, &node, nullptr, 1, mode));
+  if (err) {
+    cudaGetLastError();
+    std::rethrow_exception(err);
+  }
+  CUPIQP_CUDA_CHECK(end_err);
+}
+
+}  // namespace
+
+void capture_while(LoopContext& ctx, cudaStream_t s, const int32_t* cond,
+                   const std::function<void(cudaStream_t)>& body) {
+  if (!is_capturing(s)) {
+    int32_t* flag = ctx.host_flag(0);
+    for (;;) {
+      CUPIQP_CUDA_CHECK(cudaMemcpyAsync(flag, cond, sizeof(int32_t), cudaMemcpyDeviceToHost, s));
+      sync_stream(s, ctx.counters());
+      if (*flag == 0) break;
+      body(s);
+    }
+    return;
+  }
+
+  capture_conditional(ctx, s, cond, cudaGraphCondTypeWhile, body);
+}
+
+void capture_if(LoopContext& ctx, cudaStream_t s, const int32_t* cond, int32_t* host_flag,
+                const std::function<void(cudaStream_t)>& body) {
+  if (!is_capturing(s)) {
+    CUPIQP_CUDA_CHECK(cudaMemcpyAsync(host_flag, cond, sizeof(int32_t), cudaMemcpyDeviceToHost, s));
+    sync_stream(s, ctx.counters());
+    if (*host_flag != 0) body(s);
+    return;
+  }
+  capture_conditional(ctx, s, cond, cudaGraphCondTypeIf, body);
 }
 
 }  // namespace cupiqp

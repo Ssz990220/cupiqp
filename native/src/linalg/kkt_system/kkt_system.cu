@@ -4,7 +4,7 @@
 #include "linalg/kkt_system/kkt_system.hpp"
 
 #include "common/check.hpp"
-#include "linalg/kkt_system/capture_if.hpp"
+#include "common/graph.hpp"
 #include "linalg/kkt_system/kkt_system_kernels.hpp"
 
 namespace cupiqp {

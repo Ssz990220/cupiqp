@@ -123,7 +123,13 @@ struct Settings {
   double iterative_refinement_min_improvement_rate = 5.0;
   double iterative_refinement_static_regularization_eps = 1e-8;
   double iterative_refinement_static_regularization_rel = 4.930380657631324e-32;
+  // Rejected (Unsupported): cuDSS 0.8.0.10 DETERMINISTIC_MODE faults
+  // intermittently (FEASIBILITY.md 3.7).
   bool use_deterministic_mode_for_cudss = false;
+  // Native extension (not in the reference): use the deterministic custom
+  // CSR/CSC kernels instead of cuSPARSE for the residual products. Results
+  // agree with cuSPARSE within 1e-14 relative; off by default for parity.
+  bool custom_spmv = false;
   bool enable_cuda_graph = true;
   bool verbose = false;          // only honoured with GraphMode::None
   bool compute_timings = false;  // CUDA-event phase timers (adds no host sync)

@@ -51,7 +51,14 @@ int patch_graph(cudaGraph_t graph, std::vector<CudaPinnedBuffer<unsigned char>>&
     } else if (type == cudaGraphNodeTypeMemcpy) {
       cudaMemcpy3DParms mp{};
       CUPIQP_CUDA_CHECK(cudaGraphMemcpyNodeGetParams(node, &mp));
-      if (mp.srcArray != nullptr || mp.srcPtr.ptr == nullptr || !is_pageable_host(mp.srcPtr.ptr)) continue;
+      // Only copies whose source is on the host: the direction decides first.
+      // (On WSL cudaPointerGetAttributes can report cudaMalloc memory as
+      // "unregistered", so a device-to-device copy must never be inspected.)
+      const bool host_source = mp.kind == cudaMemcpyHostToDevice || mp.kind == cudaMemcpyHostToHost ||
+                               mp.kind == cudaMemcpyDefault;
+      if (!host_source || mp.srcArray != nullptr || mp.srcPtr.ptr == nullptr ||
+          !is_pageable_host(mp.srcPtr.ptr))
+        continue;
       // Captured cudaMemcpyAsync calls are 1-D: width bytes at srcPtr.ptr + srcPos.x.
       CUPIQP_REQUIRE(mp.extent.height <= 1 && mp.extent.depth <= 1 && mp.srcPos.y == 0 && mp.srcPos.z == 0,
                      "patch_pageable_memcpy: unsupported multi-dimensional pageable copy");

@@ -198,6 +198,8 @@ TEST_F(CaptureWhile, NestedConditionalNodes) {
   exec.instantiate(g);
   exec.launch(stream.get(), &counters);
   EXPECT_EQ(read(4), 6);  // 3 outer x 2 inner
+  exec.launch(stream.get(), &counters);  // relaunch: the graph resets its own counters
+  EXPECT_EQ(read(4), 12);
   // Same nesting eagerly gives the same count.
   set_int<<<1, 1, 0, stream.get()>>>(total, 0);
   set_int<<<1, 1, 0, stream.get()>>>(oc, 3);

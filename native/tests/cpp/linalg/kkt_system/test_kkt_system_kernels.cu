@@ -9,7 +9,7 @@
 #include "common/buffer.hpp"
 #include "common/graph.hpp"
 #include "common/handles.hpp"
-#include "linalg/kkt_system/capture_if.hpp"
+#include "common/graph.hpp"
 #include "linalg/kkt_system/kkt_system_kernels.hpp"
 
 using namespace cupiqp;

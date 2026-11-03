@@ -4,5 +4,4 @@
 # KktSystem, so the kernel tests and the binding link without them.
 list(APPEND CUPIQP_SOURCES
   src/linalg/kkt_system/kkt_system_kernels.cu
-  src/linalg/kkt_system/capture_if.cu
   src/linalg/kkt_system/kkt_system.cu)

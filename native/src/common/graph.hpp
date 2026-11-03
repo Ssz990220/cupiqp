@@ -7,9 +7,11 @@
 //  * otherwise it runs a host loop that copies *cond to pinned memory,
 //    synchronizes the stream (counted in Counters::host_syncs) and calls the
 //    body while it is nonzero.
-// The body receives the stream it must enqueue on. Under capture this is a
-// helper stream capturing into the conditional body graph, so EVERY function
-// called from a body must take the stream as a parameter and must bind library
+// Under capture the body is captured on the same stream: the enclosing
+// capture is suspended (ended) around the body and resumed after the
+// conditional node, so streams that joined the enclosing capture (the cuDSS
+// execution stream) are free to join the body capture. Every function called
+// from a body must still take the stream as a parameter and bind library
 // handles (cudssSetStream, cusparseSetStream) to it on every call.
 #pragma once
 
@@ -76,6 +78,11 @@ cudaGraph_t capture(cudaStream_t s, const std::function<void(cudaStream_t)>& fn,
 // while (*cond != 0) body(stream);  see the header comment.
 void capture_while(LoopContext& ctx, cudaStream_t s, const int32_t* cond,
                    const std::function<void(cudaStream_t)>& body);
+
+// if (*cond != 0) body(stream);  a conditional IF node under capture, otherwise
+// a host read of *cond (into the pinned `host_flag`) and a counted sync.
+void capture_if(LoopContext& ctx, cudaStream_t s, const int32_t* cond, int32_t* host_flag,
+                const std::function<void(cudaStream_t)>& body);
 
 // Synchronize `s` and count it.
 void sync_stream(cudaStream_t s, Counters* counters);
