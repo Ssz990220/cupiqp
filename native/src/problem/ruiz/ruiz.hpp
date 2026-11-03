@@ -16,8 +16,11 @@ namespace cupiqp {
 class RuizEquilibration {
  public:
   // Allocate the state (all factors 1, x_b_scaling = x_b_scaling_init).
-  // x_b_scaling_init aliases data.active_x_bound when box bounds exist, else a
-  // buffer of ones (reference behavior: the alias follows bound updates).
+  // x_b_scaling_init aliases data.active_x_bound whenever that buffer is
+  // given (the reference SparseSolver always passes Data.active_x_bound,
+  // which is all zeros when no box side exists), else a buffer of ones (the
+  // reference default for active_x_bound=None). The alias follows bound
+  // updates, as in the reference.
   void init(const SparseDataView<double>& data, cudaStream_t s);
 
   ScalingView<double> view();
@@ -48,11 +51,36 @@ class RuizEquilibration {
   // Device int32 counter of Ruiz passes executed by the last scale_data.
   const int32_t* passes_run() const { return passes_run_.data(); }
 
+  const Dims& dims() const { return dims_; }
+
+  // Constants (reference RuizEquilibration defaults).
+  static constexpr double kMinScaling = 1e-4;
+  static constexpr double kMaxScaling = 1e4;
+  static constexpr double kConvergenceTol = 1e-3;
+
  private:
+  // Which blocks scale_matrices / the bound kernels touch (unscale_data skips
+  // the blocks that update() is about to overwrite).
+  struct Blocks {
+    bool P = true, c = true, A = true, G = true;
+    bool b = true, h_l = true, h_u = true, x_l = true, x_u = true;
+  };
+  // Reference SparseRuizEquilibration hooks. `done` (nullable) turns every
+  // kernel into a no-op once the device early-exit flag is set.
+  void compute_kkt_norms(const SparseDataView<double>& data, const int32_t* done, cudaStream_t s);
+  void scale_matrices(const SparseDataView<double>& data, const double* d, const double* cost_factor,
+                      Blocks blocks, const int32_t* done, cudaStream_t s);
+  void apply_cost_scaling(const SparseDataView<double>& data, const int32_t* done, cudaStream_t s);
+  void scale_bounds(const SparseDataView<double>& data, const double* d, const double* d_b, Blocks blocks,
+                    cudaStream_t s);
+
   Dims dims_;
   CudaBuffer<double> delta_, delta_inv_, delta_b_, delta_b_inv_, cost_scaling_, cost_scaling_inv_;
   CudaBuffer<double> x_b_scaling_, x_b_scaling_ones_, dual_res_unscale_, primal_res_unscale_;
   CudaBuffer<double> delta_iter_, delta_b_iter_, conv_buf_;
+  CudaBuffer<double> P_norms_, gamma_buf_, ones_;  // cost-scaling workspace, (B, n), (B,), (B,)
+  // done_flag_[0]: early-exit flag; done_flag_[1]: block ticket of the
+  // convergence kernel (last block of the batch decides).
   CudaBuffer<int32_t> done_flag_, passes_run_;
   const double* x_b_scaling_init_ = nullptr;
 };
