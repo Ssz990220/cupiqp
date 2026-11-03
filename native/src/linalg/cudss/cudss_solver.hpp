@@ -14,7 +14,9 @@
 #include <vector>
 
 #include "common/buffer.hpp"
+#include "common/handles.hpp"
 #include "cupiqp/cupiqp.hpp"
+#include "linalg/cudss/cudss_memory.hpp"
 
 namespace cupiqp {
 
@@ -38,8 +40,29 @@ class CudssSolver {
   void factor(cudaStream_t s);   // FACTORIZATION, async, capturable (also in conditional bodies)
   void solve(cudaStream_t s);    // SOLVE, async, capturable in plain graphs only
 
+  // Added by M5 (not part of the original contract): sizes and the memory
+  // handler statistics (see cudss_memory.hpp).
+  int32_t dim() const { return dim_; }
+  int32_t nnz() const { return nnz_; }
+  const CudssMemory& memory() const { return memory_; }
+
  private:
+  void execute(int phase, cudaStream_t s);
+
+  // cuDSS 0.8.0.10 runs FACTORIZATION and SOLVE of a data object on the stream
+  // that was set at its ANALYSIS; later cudssSetStream calls do not move the
+  // work (measured, see docs/modules/cudss.md). Every phase therefore runs on
+  // this solver-owned stream, forked from and joined back to the caller's
+  // stream with events. Under capture the fork/join pulls exec_stream_ into the
+  // caller's capture (plain graph or conditional body), so the cuDSS nodes land
+  // in the caller's graph at the call position.
+  CudaStream exec_stream_;
+  CudaEvent fork_, join_;
+
   Counters* counters_;
+  Counters local_counters_;  // used when the caller passes no Counters
+  CudssMemory memory_;       // must outlive handle_ and data_ (declared before them)
+  int32_t dim_ = 0, nnz_ = 0;
   cudssHandle_t handle_ = nullptr;
   cudssConfig_t config_ = nullptr;
   cudssData_t data_ = nullptr;
