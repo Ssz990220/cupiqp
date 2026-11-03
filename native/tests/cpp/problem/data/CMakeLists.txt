@@ -1,0 +1,1 @@
+cupiqp_add_test(test_sparse_data test_sparse_data.cu)
