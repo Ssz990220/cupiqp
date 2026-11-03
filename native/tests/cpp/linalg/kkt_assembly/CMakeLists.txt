@@ -1,0 +1,1 @@
+cupiqp_add_test(test_kkt_assembly test_kkt_assembly.cu)
