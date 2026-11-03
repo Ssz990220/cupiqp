@@ -131,6 +131,31 @@ calls are identical. End-to-end parity is defined on status, iteration count
 (exact match expected in most cases, plus or minus 1 tolerated and reported),
 objective, and residuals (see DESIGN.md section 8).
 
+### 3.7 Findings during module implementation (cuDSS 0.8.0.10)
+
+- **Data object bound to its ANALYSIS stream.** After ANALYSIS on stream X, every
+  later FACTORIZATION/SOLVE on that `cudssData` executes on X regardless of
+  `cudssSetStream`. Work issued while capturing another stream produces no
+  cuDSS nodes there. The PoC in 3.2/3.3 captured on the analysis stream itself,
+  so its results stand. The `cudss` module owns an execution stream for ANALYSIS
+  and forks/joins every phase onto the caller's stream with events, so cuDSS
+  nodes land in the caller's graph or conditional body (test
+  `WorkFollowsTheCallerStream`).
+- **`DETERMINISTIC_MODE` crashes intermittently.** SOLVE fails with
+  `cudaErrorIllegalAddress` (out-of-bounds shared-memory read in
+  `cudss::fwd_dtmn_ker`, per compute-sanitizer). This happened in 4 of 6 gtest
+  runs; the reference `use_deterministic_mode=True` also failed in 1 of 3. The
+  native solver rejects `use_deterministic_mode_for_cudss = true`.
+- **Run-to-run reproducibility.** Default-mode factor+solve is not bitwise
+  reproducible (spread up to 6e-13 on test systems), nor are cuSPARSE
+  transposed SpMV products (atomics, ~3e-14). Both hold for the reference too,
+  so end-to-end parity uses tolerances, and iteration counts may differ by
+  one between any two runs (reference vs reference included).
+- **Steady-state allocations: none.** After ANALYSIS (8 allocs) and the first
+  FACTORIZATION (1 alloc, 1.53 MB), cuDSS requests no memory, eager or in
+  graphs. It requests 0 bytes once per eager SOLVE, which the handler answers
+  with null without touching the pool. No arena is needed.
+
 ## 4. Conclusion
 
 A standalone C++/CUDA sparse FP64 solver with no Python, Warp, or JAX run-time
