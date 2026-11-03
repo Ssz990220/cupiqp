@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstring>
 #include <functional>
+#include <map>
 #include <vector>
 
 #include "common/buffer.hpp"
@@ -126,6 +127,7 @@ class SparseSolverImpl {
       ruiz_.scale_data(dv, settings.preconditioner_scale_cost, settings.preconditioner_iter, s);
 
     allocate_state();
+    allocate_inputs(v);
 
     ops_.init(cusparse_.get(), dv, settings.custom_spmv ? SpmvBackend::Custom : SpmvBackend::Cusparse);
     kkt_.init(data_.P_pattern(), data_.A_pattern(), data_.G_pattern(), dv, s);
@@ -155,17 +157,20 @@ class SparseSolverImpl {
     UpdateMask mask;
     mask.P = v.P; mask.c = v.c; mask.A = v.A; mask.b = v.b; mask.G = v.G;
     mask.h_l = v.h_l; mask.h_u = v.h_u; mask.x_l = v.x_l; mask.x_u = v.x_u;
+    update_work(s, v, mask, from_host);
+    event_record_update_end();
+    ++counters_.updates;
+  }
+
+  // Device work of update(), the reference _update_impl sequence. Captures
+  // into a CUDA graph when the inputs are device memory at fixed addresses.
+  void update_work(cudaStream_t s, const ValuesView& v, const UpdateMask& mask, bool from_host) {
     auto dv = data_.view();
-
-    // reference: info.reset_status()
-    fill_status(s, STATUS_UNSOLVED);
-
+    fill_status(s, STATUS_UNSOLVED);  // reference: info.reset_status()
     const bool precond = settings.preconditioner_iter > 0;
     if (precond) ruiz_.unscale_data(dv, mask, s);  // replaced blocks skipped (exact)
-
-    UpdateMask applied = from_host ? data_.set_values_from_host(v, s) : data_.set_values(v, s);
-    (void)applied;
-
+    if (from_host) data_.set_values_from_host(v, s);
+    else data_.set_values(v, s);
     const bool matrix_changed = mask.any_matrix();
     const bool ineq_bound_pattern_may_change = mask.any_ineq_bound();
     bool fresh_ruiz = false;
@@ -183,6 +188,52 @@ class SparseSolverImpl {
     ruiz_.compute_constraints_rhs_inf_norm_unscaled(dv, rhs_norm_.data(), s);
     kkt_.scatter(dv, mask.P || fresh_ruiz, mask.A || fresh_ruiz,
                  mask.G || fresh_ruiz || ineq_bound_pattern_may_change, s);
+  }
+
+  // ------------------------------------------------------------------ staged inputs
+  InputBuffers input_buffers(bool host) {
+    require_setup("input_buffers()");
+    InputBuffers ib;
+    double** ptrs[kBlocks] = {&ib.P, &ib.c, &ib.A, &ib.b, &ib.G, &ib.h_l, &ib.h_u, &ib.x_l, &ib.x_u};
+    int64_t* lens[kBlocks] = {&ib.len_P, &ib.len_c, &ib.len_A, &ib.len_b, &ib.len_G,
+                              &ib.len_h_l, &ib.len_h_u, &ib.len_x_l, &ib.len_x_u};
+    for (int k = 0; k < kBlocks; ++k) {
+      *lens[k] = static_cast<int64_t>(in_dev_[k].size());
+      *ptrs[k] = *lens[k] ? (host ? in_host_[k].data() : in_dev_[k].data()) : nullptr;
+    }
+    return ib;
+  }
+
+  void update_staged(const UpdateBlocks& blocks, bool from_host) {
+    require_setup("update_staged()");
+    cudaStream_t s = stream_.get();
+    const bool want[kBlocks] = {blocks.P, blocks.c, blocks.A, blocks.b, blocks.G,
+                                blocks.h_l, blocks.h_u, blocks.x_l, blocks.x_u};
+    UpdateMask mask;
+    bool* mk[kBlocks] = {&mask.P, &mask.c, &mask.A, &mask.b, &mask.G, &mask.h_l, &mask.h_u, &mask.x_l, &mask.x_u};
+    ValuesView v;
+    const double** vk[kBlocks] = {&v.P, &v.c, &v.A, &v.b, &v.G, &v.h_l, &v.h_u, &v.x_l, &v.x_u};
+    uint32_t key = from_host ? 1u << kBlocks : 0u;
+    for (int k = 0; k < kBlocks; ++k) {
+      if (!want[k] || in_dev_[k].size() == 0) continue;  // absent blocks are ignored
+      *mk[k] = true;
+      *vk[k] = in_dev_[k].data();
+      key |= 1u << k;
+    }
+    event_record_start();
+    GraphExec& ge = update_graphs_[key];
+    if (!ge.valid()) {
+      cudaGraph_t g = capture(s, [&](cudaStream_t st) {
+        if (from_host)
+          for (int k = 0; k < kBlocks; ++k)
+            if (*mk[k])
+              CUPIQP_CUDA_CHECK(cudaMemcpyAsync(in_dev_[k].data(), in_host_[k].data(),
+                                                sizeof(double) * in_dev_[k].size(), cudaMemcpyHostToDevice, st));
+        update_work(st, v, mask, false);
+      }, &counters_);
+      ge.instantiate(g);
+    }
+    ge.launch(s, &counters_);
     event_record_update_end();
     ++counters_.updates;
   }
@@ -204,16 +255,25 @@ class SparseSolverImpl {
       }
     }
     if (mode == GraphMode::IterationGraphHostLoop) {
-      run_device_solve(s, [this](cudaStream_t st) { launch_iteration_graph(st); });
+      // Prelude and finalization as CUDA graphs (captured on first use), the
+      // IPM loop driven from the host with one iteration graph per iteration.
+      launch_cached(prelude_graph_, s, [this](cudaStream_t st) { solve_prelude(st); });
+      capture_while(loops_, s, continue_flag(), [this](cudaStream_t st) { launch_iteration_graph(st); });
+      launch_cached(finalize_graph_, s, [this](cudaStream_t st) { solve_finalize(st); });
     } else if (mode == GraphMode::None) {
       run_device_solve(s, [this](cudaStream_t st) {
         run_one_iteration(st);
         if (settings.verbose) print_iteration(st);
       });
     }
-    if (settings.preconditioner_iter > 0) ruiz_.unscale_solution(result_.view, s);
     event_record_solve_end();
     ++counters_.solves;
+  }
+
+  template <class Fn>
+  void launch_cached(GraphExec& ge, cudaStream_t s, Fn&& fn) {
+    if (!ge.valid()) ge.instantiate(capture(s, fn, &counters_));
+    ge.launch(s, &counters_);
   }
 
   // ------------------------------------------------------------------ accessors
@@ -357,7 +417,12 @@ class SparseSolverImpl {
   CudaBuffer<double> work_z_1_, work_z_2_, work_x_, rhs_norm_;
 
   GraphExec iteration_graph_;
+  GraphExec prelude_graph_, finalize_graph_;
   GraphExec solve_graph_;
+  std::map<uint32_t, GraphExec> update_graphs_;  // keyed by replaced blocks (+ from_host bit)
+  static constexpr int kBlocks = 9;              // P, c, A, b, G, h_l, h_u, x_l, x_u
+  CudaBuffer<double> in_dev_[kBlocks];
+  CudaPinnedBuffer<double> in_host_[kBlocks];
   bool solve_graph_failed_ = false;
   std::vector<CudaPinnedBuffer<unsigned char>> patched_bytes_;
 
@@ -435,6 +500,24 @@ class SparseSolverImpl {
     ev_start_ = CudaEvent::create(true);
     ev_update_end_ = CudaEvent::create(true);
     ev_solve_end_ = CudaEvent::create(true);
+  }
+
+  // Solver-owned input buffers (device + pinned host), initialized with the
+  // setup() values so that a partial update_staged() keeps the other blocks.
+  void allocate_inputs(const ValuesView& v) {
+    cudaStream_t s = stream_.get();
+    const int64_t lens[kBlocks] = {d_.nnz_P, d_.n, d_.nnz_A, d_.p, d_.nnz_G,
+                                   d_.num_hl, d_.num_hu, d_.num_xl, d_.num_xu};
+    const double* src[kBlocks] = {v.P, v.c, v.A, v.b, v.G, v.h_l, v.h_u, v.x_l, v.x_u};
+    for (int k = 0; k < kBlocks; ++k) {
+      in_dev_[k].allocate(static_cast<size_t>(lens[k]));
+      in_host_[k].allocate(static_cast<size_t>(lens[k]));
+      if (lens[k] && src[k]) {
+        in_dev_[k].copy_from_device(src[k], static_cast<size_t>(lens[k]), s);
+        CUPIQP_CUDA_CHECK(cudaMemcpyAsync(in_host_[k].data(), src[k], sizeof(double) * lens[k],
+                                          cudaMemcpyDeviceToHost, s));
+      }
+    }
   }
 
   void fill_status(cudaStream_t s, int32_t status) { set_int_kernel_launch(s, info_.status, d_.B, status); }
@@ -553,21 +636,29 @@ class SparseSolverImpl {
   // ------------------------------------------------------------------ device solve
   template <class RunIteration>
   void run_device_solve(cudaStream_t s, RunIteration&& run_iteration) {
+    solve_prelude(s);
+    capture_while(loops_, s, continue_flag(), run_iteration);
+    solve_finalize(s);
+  }
+
+  // Reset, initial guess, its residuals and the first termination check.
+  void solve_prelude(cudaStream_t s) {
     reset_solve_state(s);
     zero(s, loop_state_.data(), 2 * sizeof(int32_t));
-
     initial_guess(s);
     update_residuals_nr(s);
     copy_d2d(s, info_.prev_primal_res, info_.primal_res, sizeof(double) * d_.B);
     copy_d2d(s, info_.prev_dual_res, info_.dual_res, sizeof(double) * d_.B);
     update_residuals_r(s);
     update_termination(s);
+  }
 
-    capture_while(loops_, s, continue_flag(), run_iteration);
-
+  // Everything still active ran out of iterations; unscale the solution.
+  void solve_finalize(cudaStream_t s) {
     launch_terminate_active(s, d_.B, active_.data(), current_iter(), STATUS_MAX_ITER_REACHED,
                             info_.status, info_.iter);
     copy_d2d(s, info_.iter_total, current_iter(), sizeof(int32_t));
+    if (settings.preconditioner_iter > 0) ruiz_.unscale_solution(result_.view, s);
   }
 
   void reset_solve_state(cudaStream_t s) {
@@ -913,6 +1004,9 @@ void SparseSolver::setup(const CsrPattern& P, const ValuesView& values, const Cs
 void SparseSolver::update(const ValuesView& values) { impl_->update(values, false); }
 void SparseSolver::update_from_host(const ValuesView& host_values) { impl_->update(host_values, true); }
 void SparseSolver::solve() { impl_->solve(); }
+InputBuffers SparseSolver::input_buffers() { return impl_->input_buffers(false); }
+InputBuffers SparseSolver::host_input_buffers() { return impl_->input_buffers(true); }
+void SparseSolver::update_staged(const UpdateBlocks& blocks, bool from_host) { impl_->update_staged(blocks, from_host); }
 ResultView SparseSolver::result() const { return impl_->result(); }
 void SparseSolver::download_x(double* host, cudaEvent_t done) { impl_->download_x(host, done); }
 Info SparseSolver::info() { return impl_->info(); }

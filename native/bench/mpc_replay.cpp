@@ -13,7 +13,9 @@
 // z = z_u - z_l of every timed transition) for the independent KKT checker.
 //
 // Usage: cupiqp_native_replay --data <export dir> --out <results dir>
-//          [--repeats 20] [--graph-mode iteration|none|device] [--custom-spmv]
+//          [--repeats 20] [--graph-mode iteration|none|device] [--custom-spmv] [--staged]
+//   --staged: values are written into the solver-owned input buffers before the
+//   timed interval (host_values: pinned host buffers, H2D copy inside the update graph).
 #include <cuda_runtime.h>
 
 #include <algorithm>
@@ -233,20 +235,42 @@ struct Replay {
     setup_ms = clk::now() - t0;
   }
 
+  bool staged = false;
+
+  // Producer side of the staged mode (not timed): the new values are written
+  // into the solver-owned input buffers (device for gpu_resident, pinned host
+  // for host_values), mirroring "values already in GPU / pinned memory".
+  void stage(int case_index, bool host_values) {
+    cudaStream_t s = solver.stream();
+    cupiqp::InputBuffers ib = host_values ? solver.host_input_buffers() : solver.input_buffers();
+    const double* base = (host_values ? h_packets : d_packets) + g.total * case_index;
+    struct { double* dst; const char* key; int64_t len; } parts[] = {
+        {ib.P, "P", ib.len_P}, {ib.A, "A", ib.len_A}, {ib.G, "C", ib.len_G}, {ib.c, "q", ib.len_c},
+        {ib.b, "b", ib.len_b}, {ib.h_l, "l", ib.len_h_l}, {ib.h_u, "u", ib.len_h_u}};
+    for (auto& pt : parts) {
+      if (!pt.len) continue;
+      if (host_values) std::memcpy(pt.dst, base + g.off(pt.key), sizeof(double) * pt.len);
+      else CK(cudaMemcpyAsync(pt.dst, base + g.off(pt.key), sizeof(double) * pt.len, cudaMemcpyDeviceToDevice, s));
+    }
+    CK(cudaStreamSynchronize(s));
+  }
+
   // One update + solve + x download; returns the trial (timings when measure).
   Trial step(int case_index, bool host_values, bool measure) {
     cudaStream_t s = solver.stream();
     Trial t;
+    if (staged) stage(case_index, host_values);
     if (measure) CK(cudaEventRecord(ev[0], s));
     auto t0 = clk::now();
     const double* src = d_packets + g.total * case_index;
-    if (host_values) {
+    if (host_values && !staged) {
       CK(cudaMemcpyAsync(d_stage, h_packets + g.total * case_index, sizeof(double) * g.total,
                          cudaMemcpyHostToDevice, s));
       src = d_stage;
     }
     if (measure) CK(cudaEventRecord(ev[1], s));
-    solver.update(view(src));
+    if (staged) solver.update_staged(cupiqp::UpdateBlocks::all(), host_values);
+    else solver.update(view(src));
     if (measure) CK(cudaEventRecord(ev[2], s));
     solver.solve();
     if (measure) CK(cudaEventRecord(ev[3], s));
@@ -286,7 +310,7 @@ int main(int argc, char** argv) {
     fs::path data, out;
     int repeats = 20;
     std::string gm = "iteration";
-    bool custom_spmv = false;
+    bool custom_spmv = false, staged = false;
     for (int i = 1; i < argc; ++i) {
       std::string a = argv[i];
       auto next = [&]() -> std::string {
@@ -298,6 +322,7 @@ int main(int argc, char** argv) {
       else if (a == "--repeats") repeats = std::stoi(next());
       else if (a == "--graph-mode") gm = next();
       else if (a == "--custom-spmv") custom_spmv = true;
+      else if (a == "--staged") staged = true;
       else throw std::runtime_error("unknown argument " + a);
     }
     if (data.empty() || out.empty()) throw std::runtime_error("--data and --out are required");
@@ -317,7 +342,7 @@ int main(int argc, char** argv) {
     std::ofstream sol(out / "solutions.bin", std::ios::binary);
     std::ofstream solidx(out / "solutions-index.jsonl");
     setup << "{\"version\":\"" << cupiqp::version_string() << "\",\"graph_mode\":\"" << gm
-          << "\",\"custom_spmv\":" << (custom_spmv ? "true" : "false") << ",\"repeats\":" << repeats
+          << "\",\"custom_spmv\":" << (custom_spmv ? "true" : "false") << ",\"staged_inputs\":" << (staged ? "true" : "false") << ",\"repeats\":" << repeats
           << ",\"groups\":[";
     int64_t sol_offset = 0, timed = 0;
 
@@ -334,6 +359,7 @@ int main(int argc, char** argv) {
         std::sort(v.begin(), v.end(), [&](int a, int b) { return g.step[a] < g.step[b]; });
 
       Replay rp(g, mode, custom_spmv);
+      rp.staged = staged;
       rp.setup(0);
       // First solve after setup: includes the first graph capture (reported separately).
       auto tf = clk::now();

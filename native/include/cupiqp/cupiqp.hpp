@@ -76,6 +76,24 @@ struct ValuesView {
   const double* x_u = nullptr;
 };
 
+// Which value blocks an update replaces.
+struct UpdateBlocks {
+  bool P = false, c = false, A = false, b = false, G = false;
+  bool h_l = false, h_u = false, x_l = false, x_u = false;
+  static UpdateBlocks all() { return {true, true, true, true, true, true, true, true, true}; }
+};
+
+// Solver-owned input buffers, allocated in setup() at fixed addresses for the
+// lifetime of the solver (device or pinned host memory). Write new values in
+// the stored-entry order of the setup() patterns, then call update_staged().
+// Pointers of absent blocks / bound sides are nullptr with length 0.
+struct InputBuffers {
+  double *P = nullptr, *c = nullptr, *A = nullptr, *b = nullptr, *G = nullptr;
+  double *h_l = nullptr, *h_u = nullptr, *x_l = nullptr, *x_u = nullptr;
+  int64_t len_P = 0, len_c = 0, len_A = 0, len_b = 0, len_G = 0;
+  int64_t len_h_l = 0, len_h_u = 0, len_x_l = 0, len_x_u = 0;
+};
+
 // ---------------------------------------------------------------------------
 // Settings, status, results
 // ---------------------------------------------------------------------------
@@ -224,6 +242,17 @@ class SparseSolver {
   void update(const ValuesView& values);
   // Same with host pointers; pinned memory keeps it asynchronous.
   void update_from_host(const ValuesView& host_values);
+
+  // Preallocated inputs (recommended for repeated updates). Write the new
+  // values into input_buffers() (device) or host_input_buffers() (pinned host),
+  // ordered on stream(), then call update_staged(). Because the input
+  // addresses never change, the whole update (including the host-to-device
+  // copy when from_host is true) is replayed as one CUDA graph, captured on the
+  // first call for each combination of blocks. Results are identical to
+  // update() with the same values.
+  InputBuffers input_buffers();
+  InputBuffers host_input_buffers();
+  void update_staged(const UpdateBlocks& blocks = UpdateBlocks::all(), bool from_host = false);
 
   // Run the solver on the current data. Enqueued on stream(); in the default
   // graph mode it waits on one 8-byte loop-state copy per IPM iteration.
