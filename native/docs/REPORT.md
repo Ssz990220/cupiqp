@@ -180,8 +180,10 @@ See `native/docs/design/DEVIATIONS.md`. In short:
   compute-sanitizer on WSL.
 
 Possible next steps:
-- Capture `update()` into a graph (about 0.18 ms).
-- Evaluate cuDSS `REFACTORIZATION` (the single largest cost).
+- Capture `update()` into a graph (about 0.18 ms; needs inputs at fixed
+  addresses).
+- cuDSS `REFACTORIZATION` was evaluated: no speedup with this configuration
+  (FEASIBILITY.md 3.8).
 - Batching via cuDSS uniform batches.
 - FP32 after FP64 parity.
 - A JAX FFI binding (design section 9).

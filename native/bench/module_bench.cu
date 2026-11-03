@@ -15,6 +15,8 @@
 #include <time.h>
 
 #include <algorithm>
+#include <cmath>
+#include <random>
 #include <cstdio>
 #include <fstream>
 #include <functional>
@@ -208,6 +210,7 @@ int main(int argc, char** argv) {
             },
             true);
     measure("iteration: cuDSS FACTORIZATION only", [&](cudaStream_t st) { cudss.factor(st); }, true);
+    measure("iteration: cuDSS REFACTORIZATION only", [&](cudaStream_t st) { cudss.refactor(st); }, true);
     measure("iteration: cuDSS SOLVE only", [&](cudaStream_t st) { cudss.solve(st); }, true);
     measure("iteration: condensed KKT solve (elim + SOLVE + recover)",
             [&](cudaStream_t st) { kkt_sys.solve(dv, ruiz.view(), rhs, lhs, st); }, true);
@@ -219,6 +222,58 @@ int main(int argc, char** argv) {
       measure("spmv " + tag + ": A^T y", [&](cudaStream_t st) { o.AT(st, 1.0, ybuf.data(), xbuf.data()); }, true);
       measure("spmv " + tag + ": G x", [&](cudaStream_t st) { o.G(st, 1.0, xbuf.data(), ybuf.data()); }, true);
       measure("spmv " + tag + ": G^T z", [&](cudaStream_t st) { o.GT(st, 1.0, ybuf.data(), xbuf.data()); }, true);
+    }
+
+    // REFACTORIZATION accuracy probe: factor at one IPM-like state, then move
+    // the slack / dual iterate (z, s spread over many decades, as late in an
+    // IPM solve) and compare SOLVE after FACTORIZATION vs after REFACTORIZATION.
+    {
+      std::vector<double> h_s(d.num_ineq()), h_z(d.num_ineq()), sol_f(kkt.dim()), sol_r(kkt.dim());
+      std::vector<double> rhs_h(kkt.dim());
+      CudaBuffer<double> kkt_b(kkt.nnz());
+      std::mt19937 gen(3);
+      std::uniform_real_distribution<double> U(-1, 1);
+      for (auto& v : rhs_h) v = U(gen);
+      auto set_state = [&](double spread) {
+        for (int i = 0; i < d.num_ineq(); ++i) {
+          h_s[i] = std::pow(10.0, spread * U(gen));
+          h_z[i] = std::pow(10.0, spread * U(gen));
+        }
+        CUPIQP_CUDA_CHECK(cudaMemcpyAsync(vp.data() + d.n, h_s.data(), sizeof(double) * d.num_ineq(), cudaMemcpyHostToDevice, s));
+        CUPIQP_CUDA_CHECK(cudaMemcpyAsync(vd.data() + d.p, h_z.data(), sizeof(double) * d.num_ineq(), cudaMemcpyHostToDevice, s));
+      };
+      auto solve_into = [&](std::vector<double>& out) {
+        CUPIQP_CUDA_CHECK(cudaMemcpyAsync(cudss.rhs(), rhs_h.data(), sizeof(double) * kkt.dim(), cudaMemcpyHostToDevice, s));
+        cudss.solve(s);
+        CUPIQP_CUDA_CHECK(cudaMemcpyAsync(out.data(), cudss.sol(), sizeof(double) * kkt.dim(), cudaMemcpyDeviceToHost, s));
+        CUPIQP_CUDA_CHECK(cudaStreamSynchronize(s));
+      };
+      std::fprintf(stderr, "REFACTORIZATION accuracy probe (factor at A, refactor at B vs full factor at B):\n");
+      for (double spread : {0.5, 2.0, 4.0, 8.0}) {
+        // B: full FACTORIZATION on B's values -> reference solution; keep B's KKT values.
+        set_state(spread);
+        kkt_sys.update_scalings_and_factor(dv, ruiz.view(), false, rho.data(), delta.data(), vars, s);
+        solve_into(sol_f);
+        CUPIQP_CUDA_CHECK(cudaMemcpyAsync(kkt_b.data(), kkt.values(), sizeof(double) * kkt.nnz(),
+                                          cudaMemcpyDeviceToDevice, s));
+        // A: full FACTORIZATION on a different iterate (pivots chosen on A's values).
+        set_state(0.5);
+        kkt_sys.update_scalings_and_factor(dv, ruiz.view(), false, rho.data(), delta.data(), vars, s);
+        // Put B's values back into the KKT matrix and only REFACTORIZE (reuses A's data).
+        CUPIQP_CUDA_CHECK(cudaMemcpyAsync(kkt.values(), kkt_b.data(), sizeof(double) * kkt.nnz(),
+                                          cudaMemcpyDeviceToDevice, s));
+        cudss.refactor(s);
+        solve_into(sol_r);
+        double num = 0, den = 0;
+        bool finite = true;
+        for (int i = 0; i < kkt.dim(); ++i) {
+          finite = finite && std::isfinite(sol_r[i]);
+          num = std::max(num, std::fabs(sol_r[i] - sol_f[i]));
+          den = std::max(den, std::fabs(sol_f[i]));
+        }
+        std::fprintf(stderr, "  s, z spread 1e+-%.1f decades: finite=%d  max|x_refac - x_fac| / max|x_fac| = %.3e\n",
+                     spread, finite ? 1 : 0, num / den);
+      }
     }
 
     // Public API: one update (all values) and one solve, default graph mode.
