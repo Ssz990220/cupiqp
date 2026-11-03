@@ -128,3 +128,12 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+# cupiqp-native: build products, local deps, datasets and profiler traces
+/build*/
+/native/build*/
+*.nsys-rep
+*.ncu-rep
+*.qdrep
+*.sqlite
+/native/bench/data/
+/native/tests/fixtures/generated/

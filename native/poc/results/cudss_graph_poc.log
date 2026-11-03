@@ -1,0 +1,18 @@
+cudart 13020, cuDSS 0.8.0
+eager factor+solve residual 3.013e-12
+FACTORIZATION plain capture nodes: kernel=4 memset=3 memcpy(pageable src)=0 memcpy(other)=0 other=0
+SOLVE plain capture nodes: kernel=5 memset=4 memcpy(pageable src)=2 memcpy(other)=2 other=0
+FACTORIZATION            plain graph: OK                                       while-node body: OK
+REFACTORIZATION          plain graph: OK                                       while-node body: OK
+SOLVE                    plain graph: OK                                       while-node body: FAIL instantiate cudaErrorInvalidValue
+SOLVE_FWD_PERM           plain graph: OK                                       while-node body: FAIL instantiate cudaErrorInvalidValue
+SOLVE_FWD                plain graph: OK                                       while-node body: FAIL instantiate cudaErrorInvalidValue
+SOLVE_DIAG               plain graph: OK                                       while-node body: FAIL instantiate cudaErrorInvalidValue
+SOLVE_BWD                plain graph: OK                                       while-node body: FAIL instantiate cudaErrorInvalidValue
+SOLVE_BWD_PERM           plain graph: OK                                       while-node body: FAIL instantiate cudaErrorInvalidValue
+SOLVE_REFINEMENT         plain graph: OK                                       while-node body: FAIL instantiate cudaErrorInvalidValue
+SOLVE minus REFINEMENT   plain graph: OK                                       while-node body: FAIL instantiate cudaErrorInvalidValue
+graph replay after in-place value update residual 4.053e-12
+patched while round 0: patched 2 nodes, instantiate OK, 3 body runs, bitwise equal to eager: yes
+patched while round 1: patched 2 nodes, instantiate OK, 3 body runs, bitwise equal to eager: NO
+pageable snapshot bytes: 8B(int64=2143188680704, f64=1.05888e-311) 8B(int64=2143188680704, f64=1.05888e-311); identical across value updates: yes
