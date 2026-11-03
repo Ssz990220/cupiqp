@@ -7,6 +7,7 @@
 #include <cmath>
 
 #include "common/check.hpp"
+#include "common/multiblock.cuh"
 #include "common/reduce.cuh"
 
 namespace cupiqp {
@@ -322,14 +323,18 @@ __global__ void refinement_add_kernel(int32_t B, int32_t n, int32_t p, int32_t m
   }
 }
 
-// One block per problem; every thread strides over the concatenated row.
+// Multi-block reduction (common/multiblock.cuh): block (b, j) visits
+// t = j * BLOCK + i, t += nb * BLOCK of the concatenated row (one block per
+// problem, the reference mapping, when nb == 1).
 template <int BLOCK, class T>
-__global__ void solution_finite_kernel(int32_t n, int32_t p, int32_t m, RowMat<const T> x, RowMat<const T> y,
-                                       RowMat<const T> z, int32_t* status) {
-  const int64_t b = blockIdx.x;
+__global__ void __launch_bounds__(BLOCK)
+solution_finite_kernel(MultiblockGrid g, int32_t n, int32_t p, int32_t m, RowMat<const T> x, RowMat<const T> y,
+                       RowMat<const T> z, int32_t* status) {
+  __shared__ MultiblockStorage<BLOCK, 1, int32_t> sm;
+  const int64_t b = g.problem();
   const int64_t total = int64_t(n) + p + m;
-  int32_t bad = 0;
-  for (int64_t t = threadIdx.x; t < total; t += BLOCK) {
+  int32_t bad[1] = {0};
+  for (int64_t t = g.first<BLOCK>(); t < total; t += g.stride<BLOCK>()) {
     T v;
     if (t < n) {
       v = x(b, t);
@@ -338,10 +343,10 @@ __global__ void solution_finite_kernel(int32_t n, int32_t p, int32_t m, RowMat<c
     } else {
       v = z(b, t - n - p);
     }
-    if (!isfinite(v)) bad = 1;  // false for NaN, +inf and -inf
+    if (!isfinite(v)) bad[0] = 1;  // false for NaN, +inf and -inf
   }
-  int32_t any_bad = block_max<BLOCK>(bad);
-  if (threadIdx.x == 0) status[b] = any_bad;
+  if (!multiblock_reduce<BLOCK, 1, reduce_kinds(ReduceKind::Max)>(g, bad, sm)) return;
+  if (threadIdx.x == 0) status[b] = sm.result[0];
 }
 
 template <class T>
@@ -499,11 +504,14 @@ void refinement_add(int32_t B, int32_t n, int32_t p, int32_t m, CDMat lhs_x, CDM
 }
 
 void solution_finite(int32_t B, int32_t n, int32_t p, int32_t m, CDMat x, CDMat y, CDMat z, int32_t* status,
-                     cudaStream_t s) {
+                     cudaStream_t s, const ReductionWorkspace& ws) {
   if (B == 0) return;
-  dispatch_block(reduction_block_dim(int64_t(n) + p + m), [&](auto blk) {
+  const int64_t width = int64_t(n) + p + m;
+  const int nb = blocks_per_problem(ws, B, width, 1);
+  const MultiblockGrid g = multiblock_grid(ws, nb);
+  dispatch_block(multiblock_block_dim(width, nb), [&](auto blk) {
     constexpr int BLOCK = decltype(blk)::value;
-    solution_finite_kernel<BLOCK, double><<<B, BLOCK, 0, s>>>(n, p, m, x, y, z, status);
+    solution_finite_kernel<BLOCK, double><<<multiblock_dim(B, nb), BLOCK, 0, s>>>(g, n, p, m, x, y, z, status);
   });
   CUPIQP_CUDA_CHECK_LAUNCH();
 }

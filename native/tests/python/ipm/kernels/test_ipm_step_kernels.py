@@ -43,7 +43,7 @@ def _vars(B, n, p, sides, rng, lo=0.1, hi=2.0, garbage=True, mask=None):
 
 
 @pytest.mark.parametrize("case", list(CASES))
-def test_calculate_step(testing, case):
+def test_calculate_step(testing, case, blocks_per_problem):
     def build():
         B, n, p, sides, num_ineq, rng, mask = _case(case, 11)
         v = _vars(B, n, p, sides, rng, mask=mask)
@@ -60,7 +60,7 @@ def test_calculate_step(testing, case):
 
 
 @pytest.mark.parametrize("case", list(CASES))
-def test_calculate_mu(testing, case):
+def test_calculate_mu(testing, case, blocks_per_problem):
     def build():
         B, n, p, sides, num_ineq, rng, mask = _case(case, 12)
         v = _vars(B, n, p, sides, rng, mask=mask)
@@ -74,7 +74,7 @@ def test_calculate_mu(testing, case):
 
 
 @pytest.mark.parametrize("case", list(CASES))
-def test_init_guess_center(testing, case):
+def test_init_guess_center(testing, case, blocks_per_problem):
     def build():
         B, n, p, sides, num_ineq, rng, mask = _case(case, 13)
         # initial solve output: arbitrary signs
@@ -94,7 +94,7 @@ def test_init_guess_center(testing, case):
 
 
 @pytest.mark.parametrize("case", list(CASES))
-def test_prepare_factor_and_predictor_step(testing, case):
+def test_prepare_factor_and_predictor_step(testing, case, blocks_per_problem):
     def build():
         B, n, p, sides, num_ineq, rng, mask = _case(case, 14)
         v = _vars(B, n, p, sides, rng, mask=mask)
@@ -123,7 +123,7 @@ def test_prepare_factor_and_predictor_step(testing, case):
 
 
 @pytest.mark.parametrize("case", list(CASES))
-def test_prepare_corrector_step(testing, case):
+def test_prepare_corrector_step(testing, case, blocks_per_problem):
     def build():
         B, n, p, sides, num_ineq, rng, mask = _case(case, 15)
         v = _vars(B, n, p, sides, rng, mask=mask)
@@ -193,7 +193,7 @@ def _poison(a: np.ndarray, rng, frac=0.05):
 
 
 @pytest.mark.parametrize("case", ["B3_ineq400", "B2_ineq3000"])
-def test_reductions_with_nonfinite_inputs(testing, case):
+def test_reductions_with_nonfinite_inputs(testing, case, blocks_per_problem):
     """NaN entries (a poisoned KKT solve): Warp min/max ignore a NaN
     operand (fmin/fmax), sums propagate it; the native kernels must agree."""
     def build():

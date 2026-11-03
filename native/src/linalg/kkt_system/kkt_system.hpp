@@ -12,6 +12,7 @@
 
 #include "common/buffer.hpp"
 #include "common/graph.hpp"
+#include "common/multiblock.hpp"
 #include "common/views.hpp"
 #include "linalg/cudss/cudss_solver.hpp"
 #include "linalg/kkt_assembly/kkt_assembly.hpp"
@@ -79,6 +80,7 @@ class KktSystem {
   CudaBuffer<double> rho_, delta_, x_reg_, z_reg_, z_reg_inv_, rhs_x_bar_, rhs_z_bar_, work_x_, work_z_;
   CudaBuffer<double> m_s_all_, m_z_inv_all_, w_delta_inv_all_, updated_rhs_z_all_;
   CudaBuffer<int32_t> factor_status_, solve_status_;
+  ReductionWorkspaceBuffers reduce_ws_;  // finite check (multi-block reduction)
   // Iterative refinement: condensed-operator products, residual / candidate
   // (B, n + p + m), device loop state [step, accept, correct, loop].
   CudaBuffer<double> work_Px_, work_GTz_, work_Ax_, work_Gx_, norm_buf_;

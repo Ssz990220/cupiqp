@@ -7,6 +7,8 @@
 
 #include <cstdint>
 
+#include "common/check.hpp"
+#include "common/multiblock.hpp"
 #include "linalg/kkt_system/kkt_system_kernels.hpp"
 
 namespace nb = nanobind;
@@ -144,10 +146,19 @@ void bind_kkt_system(nb::module_& m, nb::module_& testing) {
                                             M(cz, mm), s);
               });
 
-  testing.def("kkt_solution_finite", [s](int32_t n, int32_t p, int32_t mm, uintptr_t x, uintptr_t y, uintptr_t z,
-                                         uintptr_t status) {
-    kkt_kernels::solution_finite(1, n, p, mm, C(x, n), C(y, p), C(z, mm), I(status), s);
-  });
+  // blocks_per_problem: 0 = the solver heuristic, > 0 forces that many blocks
+  // (multi-block reduction; the workspace is allocated per call, tests only).
+  testing.def(
+      "kkt_solution_finite",
+      [s](int32_t n, int32_t p, int32_t mm, uintptr_t x, uintptr_t y, uintptr_t z, uintptr_t status,
+          int blocks_per_problem) {
+        ReductionWorkspaceBuffers ws;
+        ws.allocate(1, int64_t(n) + p + mm, s, blocks_per_problem);
+        kkt_kernels::solution_finite(1, n, p, mm, C(x, n), C(y, p), C(z, mm), I(status), s, ws.view());
+        CUPIQP_CUDA_CHECK(cudaStreamSynchronize(s));  // before the workspace is freed
+      },
+      nb::arg("n"), nb::arg("p"), nb::arg("m"), nb::arg("x"), nb::arg("y"), nb::arg("z"), nb::arg("status"),
+      nb::arg("blocks_per_problem") = 0);
 
   testing.def("kkt_assemble_rhs", [s](int32_t n, int32_t p, int32_t mm, uintptr_t x, uintptr_t y, uintptr_t z,
                                       uintptr_t out) {

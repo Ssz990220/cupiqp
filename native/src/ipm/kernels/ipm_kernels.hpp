@@ -24,10 +24,18 @@
 // synchronize, so every launcher is CUDA graph capturable. B == 0 or an empty
 // launch domain enqueues nothing.
 //
-// Tiled reference kernels (wp.launch_tiled, dim=[B]) run one block per problem
-// with reduction_block_dim(width) threads of the same width the reference
-// uses; their sums use cub::BlockReduce (common/reduce.cuh), whose order
-// differs from Warp tile_sum, so sums may differ in the last bits. Min/max use
+// Tiled reference kernels (wp.launch_tiled, dim=[B]) take a
+// ReductionWorkspace (common/multiblock.hpp, allocated at setup). Without one,
+// or when B alone fills the GPU, they run one block per problem with
+// reduction_block_dim(width) threads of the same width the reference uses.
+// With a workspace and small B, each problem is split over several blocks
+// (multi-block reduction, common/multiblock.cuh); kernels whose element-wise
+// phase needs the reduced scalar (init_guess_center, prepare_corrector_step)
+// then become reduction launches plus an element-wise launch, keeping the
+// order of operations of every element-wise expression. In both cases
+// reductions are bitwise reproducible run to run for a fixed grid. The
+// summation order differs from Warp tile_sum, so sums may differ in the last
+// bits. Min/max use
 // fmin/fmax as Warp does (a NaN operand is ignored unless both are NaN).
 #pragma once
 
@@ -35,6 +43,7 @@
 
 #include <cstdint>
 
+#include "common/multiblock.hpp"
 #include "common/views.hpp"
 
 namespace cupiqp {
@@ -79,21 +88,23 @@ template <class T>
 void launch_calculate_step(cudaStream_t s, int32_t B, int32_t num_ineq,
                            RowsView<T> s_all, RowsView<T> z_all, RowsView<T> finite_mask_all,
                            RowsView<T> step_s_all, RowsView<T> step_z_all, const T* settings,
-                           T* alpha_s, T* alpha_z);
+                           T* alpha_s, T* alpha_z, const ReductionWorkspace& ws = ReductionWorkspace{});
 
 // create_calculate_mu_kernel. Tiled over num_ineq.
 // mu = sum_i(s_i * z_i * mask_i) / num_finite_bounds (0 without finite bounds).
 template <class T>
 void launch_calculate_mu(cudaStream_t s, int32_t B, int32_t num_ineq,
                          RowsView<T> s_all, RowsView<T> z_all, RowsView<T> finite_mask_all,
-                         const T* num_finite_bounds, T* mu);
+                         const T* num_finite_bounds, T* mu,
+                         const ReductionWorkspace& ws = ReductionWorkspace{});
 
 // create_init_guess_center_kernel. Tiled over num_ineq. Shifts s and z into the
 // positive orthant and onto the central path; mu receives the clipped measure.
 template <class T>
 void launch_init_guess_center(cudaStream_t s, int32_t B, int32_t num_ineq,
                               RowsView<T> finite_mask_all, const T* num_finite_bounds,
-                              RowsView<T> s_all, RowsView<T> z_all, T* mu);
+                              RowsView<T> s_all, RowsView<T> z_all, T* mu,
+                              const ReductionWorkspace& ws = ReductionWorkspace{});
 
 // create_prepare_factor_and_predictor_step_kernel. Tiled over num_ineq:
 // apply_finetune (thread 0), boundary_shift of z (active problems only),
@@ -115,7 +126,8 @@ struct PrepareFactorAndPredictorStepArgs {
 };
 template <class T>
 void launch_prepare_factor_and_predictor_step(cudaStream_t s, int32_t B, int32_t num_ineq,
-                                              const PrepareFactorAndPredictorStepArgs<T>& a);
+                                              const PrepareFactorAndPredictorStepArgs<T>& a,
+                                              const ReductionWorkspace& ws = ReductionWorkspace{});
 
 // create_prepare_corrector_step_kernel. Tiled over num_ineq: affine step
 // lengths, sigma, and the corrector rhs res_s_all = (res_s_all - ds * dz +
@@ -137,7 +149,8 @@ struct PrepareCorrectorStepArgs {
 };
 template <class T>
 void launch_prepare_corrector_step(cudaStream_t s, int32_t B, int32_t num_ineq,
-                                   const PrepareCorrectorStepArgs<T>& a);
+                                   const PrepareCorrectorStepArgs<T>& a,
+                                   const ReductionWorkspace& ws = ReductionWorkspace{});
 
 // create_update_vars_after_corrector_step_kernel. Element-wise over
 // (B, n + num_ineq + p + num_ineq); active problems only. Primal/dual tail
@@ -215,7 +228,8 @@ struct UpdateResidualNrArgs {
   T* info_prev_dual_res = nullptr;    // out
 };
 template <class T>
-void launch_update_residual_nr(cudaStream_t s, const Dims& d, const UpdateResidualNrArgs<T>& a);
+void launch_update_residual_nr(cudaStream_t s, const Dims& d, const UpdateResidualNrArgs<T>& a,
+                               const ReductionWorkspace& ws = ReductionWorkspace{});
 
 // create_update_residuals_r_kernel. Tiled with
 // reduction_block_dim(max(n, num_duals)). Regularized residuals, their norms,
@@ -241,7 +255,8 @@ struct UpdateResidualsRArgs {
 };
 template <class T>
 void launch_update_residuals_r(cudaStream_t s, int32_t B, int32_t n, int32_t num_duals,
-                               const UpdateResidualsRArgs<T>& a);
+                               const UpdateResidualsRArgs<T>& a,
+                               const ReductionWorkspace& ws = ReductionWorkspace{});
 
 // ============================================================ regularization updates
 

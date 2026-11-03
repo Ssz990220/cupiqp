@@ -29,3 +29,14 @@ def _ipm_parity_report():
         f.write(f"{'kernel':42s} {'array':24s} {'max_ulp':>8s} {'max_abs':>10s} {'max_rel':>10s}\n")
         for (kernel, key), (u, a, r) in sorted(worst.items()):
             f.write(f"{kernel:42s} {key:24s} {u:8.0f} {a:10.2e} {r:10.2e}\n")
+
+
+@pytest.fixture(params=[0, 3, 64], ids=lambda v: f"nbp{v}")
+def blocks_per_problem(request, testing):
+    """Blocks per problem of the multi-block reductions: 0 = the solver
+    heuristic (one block per problem for these small widths, several for the
+    widest cases), 3 and 64 force a split (64 > width for the small cases, so
+    some blocks get no element)."""
+    testing.ipm_set_blocks_per_problem(request.param)
+    yield request.param
+    testing.ipm_set_blocks_per_problem(0)

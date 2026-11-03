@@ -7,6 +7,7 @@
 // loop and the CUDA graph modes (DESIGN.md section 4).
 #include <cuda_runtime.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstring>
@@ -415,6 +416,8 @@ class SparseSolverImpl {
   CudaBuffer<int32_t> loop_state_;  // [current_iter, continue_flag]
   CudaBuffer<int32_t> needs_retry_, any_retry_;
   CudaBuffer<double> work_z_1_, work_z_2_, work_x_, rhs_norm_;
+  ReductionWorkspaceBuffers reduce_ws_;  // multi-block reductions of the IPM kernels
+  ReductionWorkspace rws_{};             // its view
 
   GraphExec iteration_graph_;
   GraphExec prelude_graph_, finalize_graph_;
@@ -486,6 +489,11 @@ class SparseSolverImpl {
     work_z_2_.allocate(static_cast<size_t>(B) * d_.m);
     work_x_.allocate(static_cast<size_t>(B) * d_.n);
     rhs_norm_.allocate(B);
+    // Widest reduced row: num_ineq (step, mu, centering) or the concatenated
+    // rows of residual_nr (n + p + num_ineq) and residuals_r (n + num_dual).
+    const int64_t red_width = int64_t(d_.n) + d_.p + std::max(d_.num_ineq(), d_.m);
+    reduce_ws_.allocate(B, red_width, stream_.get());
+    rws_ = reduce_ws_.view();
 
     cudaStream_t s = stream_.get();
     for (VariablesStorage* v : {&result_, &step_, &res_nr_, &res_, &prox_}) {
@@ -683,7 +691,7 @@ class SparseSolverImpl {
       a.no_dual_update = info_.no_dual_update;
       a.mu = info_.mu;
       a.res_s_all = rows_s_all(res_.view);
-      launch_prepare_factor_and_predictor_step<double>(s, B, ni, a);
+      launch_prepare_factor_and_predictor_step<double>(s, B, ni, a, rws_);
     } else {
       launch_apply_finetune<double>(s, B, finetune_.data(), info_.reg_limit, info_.no_primal_update,
                                     info_.no_dual_update, settings_f_.data());
@@ -785,9 +793,9 @@ class SparseSolverImpl {
 
     if (ni > 0) {
       launch_init_guess_center<double>(s, B, ni, rows(dv.finite_mask_all, ni), dv.num_finite_bounds,
-                                       rows_s_all(r), rows_z_all(r), info_.mu);
+                                       rows_s_all(r), rows_z_all(r), info_.mu, rws_);
       launch_calculate_mu<double>(s, B, ni, rows_s_all(r), rows_z_all(r), rows(dv.finite_mask_all, ni),
-                                  dv.num_finite_bounds, info_.mu);
+                                  dv.num_finite_bounds, info_.mu, rws_);
     }
     copy_d2d(s, prox_.view.primal, r.primal, sizeof(double) * B * d_.num_primal());
     copy_d2d(s, prox_.view.dual, r.dual, sizeof(double) * B * d_.num_dual());
@@ -819,19 +827,19 @@ class SparseSolverImpl {
     c.dual_step = info_.dual_step;
     c.sigma = info_.sigma;
     c.res_s_all = rows_s_all(res_.view);
-    launch_prepare_corrector_step<double>(s, B, ni, c);
+    launch_prepare_corrector_step<double>(s, B, ni, c, rws_);
     kkt_solve(s, res_.view, step_.view);
     mark_solve_failures(s);
     launch_calculate_step<double>(s, B, ni, rows_s_all(result_.view), rows_z_all(result_.view),
                                   rows(dv.finite_mask_all, ni), rows_s_all(step_.view),
                                   rows_z_all(step_.view), settings_f_.data(), info_.primal_step,
-                                  info_.dual_step);
+                                  info_.dual_step, rws_);
     launch_update_vars_after_corrector_step<double>(
         s, B, d_.n, d_.p, ni, active_.data(), rows(dv.finite_mask_all, ni), info_.primal_step,
         info_.dual_step, rows_primals_all(step_.view), rows_duals_all(step_.view),
         rows_primals_all(result_.view), rows_duals_all(result_.view));
     launch_calculate_mu<double>(s, B, ni, rows_s_all(result_.view), rows_z_all(result_.view),
-                                rows(dv.finite_mask_all, ni), dv.num_finite_bounds, info_.mu);
+                                rows(dv.finite_mask_all, ni), dv.num_finite_bounds, info_.mu, rws_);
   }
 
   void update_residuals_nr(cudaStream_t s) {
@@ -900,7 +908,7 @@ class SparseSolverImpl {
     a.info_dual_res_rel = info_.dual_res_rel;
     a.info_prev_primal_res = info_.prev_primal_res;
     a.info_prev_dual_res = info_.prev_dual_res;
-    launch_update_residual_nr<double>(s, d_, a);
+    launch_update_residual_nr<double>(s, d_, a, rws_);
   }
 
   void update_residuals_r(cudaStream_t s) {
@@ -928,7 +936,7 @@ class SparseSolverImpl {
     a.dual_res_reg_rel = info_.dual_res_reg_rel;
     a.primal_prox_inf = info_.primal_prox_inf;
     a.dual_prox_inf = info_.dual_prox_inf;
-    launch_update_residuals_r<double>(s, d_.B, d_.n, d_.num_dual(), a);
+    launch_update_residuals_r<double>(s, d_.B, d_.n, d_.num_dual(), a, rws_);
   }
 
   void update_rho_delta_with_ineq(cudaStream_t s) {

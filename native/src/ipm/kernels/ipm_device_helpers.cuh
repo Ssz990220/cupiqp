@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstdint>
 
+#include "common/multiblock.hpp"
 #include "common/reduce.cuh"
 #include "common/views.hpp"
 #include "ipm/kernels/ipm_kernels.hpp"
@@ -45,6 +46,10 @@ template <class T>
 __device__ __forceinline__ T wmax(T a, T b) { return ::fmax(a, b); }
 template <class T>
 __device__ __forceinline__ T wclamp(T x, T lo, T hi) { return ::fmin(::fmax(lo, x), hi); }
+
+// Product rounded on its own (never contracted into an FMA).
+__device__ __forceinline__ double mul_rn(double a, double b) { return __dmul_rn(a, b); }
+__device__ __forceinline__ float mul_rn(float a, float b) { return __fmul_rn(a, b); }
 
 // Machine epsilon of the dtype (np.finfo(dtype).eps).
 template <class T> struct MachineEps;
@@ -143,6 +148,18 @@ __device__ __forceinline__ void boundary_shift(RowsView<T> z_all, RowsView<T> fi
       z_all(b, k) = T(0);
     }
   }
+}
+
+// Blocks per problem and block size of a multi-block reduction launch over
+// rows of `width` elements carrying K values: the block size is the reference
+// reduction_block_dim of one block's slice (of the whole row when nb == 1).
+struct MbLaunch {
+  int nb;
+  int block;
+};
+inline MbLaunch mb_launch(const ReductionWorkspace& ws, int32_t B, int64_t width, int K) {
+  const int nb = blocks_per_problem(ws, B, width, K);
+  return {nb, multiblock_block_dim(width, nb)};
 }
 
 // Element-wise launch geometry (Warp launches use 256-thread blocks).

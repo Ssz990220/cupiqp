@@ -9,8 +9,9 @@
 //
 // Thread mapping follows the reference: a launch of Warp dim (B, W) becomes a
 // 1-D grid over B * W threads with b = tid / W, t = tid % W. The finite check
-// is one block per problem (reference wp.launch_tiled with
-// reduction_block_dim(n + p + m)).
+// is a per-problem reduction (reference wp.launch_tiled with
+// reduction_block_dim(n + p + m)), split over several blocks per problem
+// when a ReductionWorkspace is given and B is small.
 //
 // Every per-problem array is passed as a RowMat (pointer + row stride), so the
 // strided column views of Variables (B > 1) need no copies. With B == 1 the
@@ -22,6 +23,7 @@
 
 #include <cstdint>
 
+#include "common/multiblock.hpp"
 #include "common/views.hpp"
 
 namespace cupiqp {
@@ -97,9 +99,11 @@ void refinement_add(int32_t B, int32_t n, int32_t p, int32_t m, CDMat lhs_x, CDM
                     DMat cand_x, DMat cand_y, DMat cand_z, cudaStream_t s);
 
 // Reference create_solution_finite_kernel: status[b] = 1 if any entry of
-// row b of x, y or z is not finite, else 0. One block per problem.
+// row b of x, y or z is not finite, else 0. One block per problem, or
+// several (multi-block reduction, common/multiblock.hpp) when a workspace is
+// given and B is small.
 void solution_finite(int32_t B, int32_t n, int32_t p, int32_t m, CDMat x, CDMat y, CDMat z, int32_t* status,
-                     cudaStream_t s);
+                     cudaStream_t s, const ReductionWorkspace& ws = ReductionWorkspace{});
 
 // Fused [x | y | z] -> out (B, n + p + m) (replaces three wp.copy calls).
 void assemble_rhs(int32_t B, int32_t n, int32_t p, int32_t m, CDMat x, CDMat y, CDMat z, DMat out,

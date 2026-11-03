@@ -59,6 +59,7 @@ void KktSystem::init(const Dims& dims, const Settings& settings, KktAssembly* kk
   refine_state_.allocate(4);
   if_flag_.allocate(1);
   if_flag_[0] = 0;
+  reduce_ws_.allocate(dims.B, int64_t(n + p + m), s);
 
   // Reference: m_s/m_z_inv/w_delta_inv/updated_rhs_z, norm, refinement
   // buffers and statuses are wp.zeros; the rest wp.empty (zeroed here too).
@@ -127,7 +128,7 @@ void KktSystem::kkt_solve(const double* rhs_x, const double* rhs_y, const double
   kkt_kernels::split_sol(d.B, d.n, d.p, d.m, cmat(cudss_->sol(), W), mat(lhs_x, d.n), mat(lhs_y, d.p),
                          mat(lhs_z, d.m), s);
   kkt_kernels::solution_finite(d.B, d.n, d.p, d.m, cmat(lhs_x, d.n), cmat(lhs_y, d.p), cmat(lhs_z, d.m),
-                               solve_status_.data(), s);
+                               solve_status_.data(), s, reduce_ws_.view());
 }
 
 void KktSystem::solve(const SparseDataView<double>& data, const ScalingView<double>& scaling,

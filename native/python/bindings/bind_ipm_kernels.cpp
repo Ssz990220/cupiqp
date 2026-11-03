@@ -14,10 +14,12 @@
 
 #include <cuda_runtime_api.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 
 #include "common/check.hpp"
+#include "common/multiblock.hpp"
 #include "ipm/kernels/ipm_kernels.hpp"
 
 namespace nb = nanobind;
@@ -53,33 +55,50 @@ Dims dims_of(int B, int n, int p, int m, int num_hl, int num_hu, int num_xl, int
 
 void ipm_sync() { CUPIQP_CUDA_CHECK(cudaStreamSynchronize(nullptr)); }
 
+// Blocks per problem of the multi-block reductions: 0 = the solver heuristic,
+// > 0 forces that many (set with _testing.ipm_set_blocks_per_problem).
+int g_blocks_per_problem = 0;
+
+// Workspace of one reduction launch (allocated per call: tests only).
+ReductionWorkspaceBuffers make_ws(int B, int64_t width) {
+  ReductionWorkspaceBuffers w;
+  w.allocate(B, width, nullptr, g_blocks_per_problem);
+  return w;
+}
+
 }  // namespace
 
 void bind_ipm_kernels(nb::module_& m, nb::module_& testing) {
   (void)m;
   cudaStream_t s0 = nullptr;
 
+  testing.def("ipm_set_blocks_per_problem", [](int nbp) { g_blocks_per_problem = nbp; });
+
   testing.def("ipm_calculate_step", [s0](const nb::dict& a, int B, int num_ineq) {
+    auto ws = make_ws(B, num_ineq);
     launch_calculate_step<double>(s0, B, num_ineq, R(a, "s_all"), R(a, "z_all"), R(a, "finite_mask_all"),
                                   R(a, "step_s_all"), R(a, "step_z_all"), F(a, "settings"),
-                                  F(a, "alpha_s"), F(a, "alpha_z"));
+                                  F(a, "alpha_s"), F(a, "alpha_z"), ws.view());
     ipm_sync();
   });
 
   testing.def("ipm_calculate_mu", [s0](const nb::dict& a, int B, int num_ineq) {
+    auto ws = make_ws(B, num_ineq);
     launch_calculate_mu<double>(s0, B, num_ineq, R(a, "s_all"), R(a, "z_all"), R(a, "finite_mask_all"),
-                                F(a, "num_finite_bounds"), F(a, "mu"));
+                                F(a, "num_finite_bounds"), F(a, "mu"), ws.view());
     ipm_sync();
   });
 
   testing.def("ipm_init_guess_center", [s0](const nb::dict& a, int B, int num_ineq) {
+    auto ws = make_ws(B, num_ineq);
     launch_init_guess_center<double>(s0, B, num_ineq, R(a, "finite_mask_all"),
                                      F(a, "num_finite_bounds"), R(a, "s_all"), R(a, "z_all"),
-                                     F(a, "mu"));
+                                     F(a, "mu"), ws.view());
     ipm_sync();
   });
 
   testing.def("ipm_prepare_factor_and_predictor_step", [s0](const nb::dict& a, int B, int num_ineq) {
+    auto ws = make_ws(B, num_ineq);
     PrepareFactorAndPredictorStepArgs<double> x;
     x.active_mask = Bp(a, "active_mask");
     x.finetune_mask = Bp(a, "finetune_mask");
@@ -93,11 +112,12 @@ void bind_ipm_kernels(nb::module_& m, nb::module_& testing) {
     x.no_dual_update = I(a, "no_dual_update");
     x.mu = F(a, "mu");
     x.res_s_all = R(a, "res_s_all");
-    launch_prepare_factor_and_predictor_step<double>(s0, B, num_ineq, x);
+    launch_prepare_factor_and_predictor_step<double>(s0, B, num_ineq, x, ws.view());
     ipm_sync();
   });
 
   testing.def("ipm_prepare_corrector_step", [s0](const nb::dict& a, int B, int num_ineq) {
+    auto ws = make_ws(B, num_ineq);
     PrepareCorrectorStepArgs<double> x;
     x.s_all = R(a, "s_all");
     x.z_all = R(a, "z_all");
@@ -111,7 +131,7 @@ void bind_ipm_kernels(nb::module_& m, nb::module_& testing) {
     x.dual_step = F(a, "dual_step");
     x.sigma = F(a, "sigma");
     x.res_s_all = R(a, "res_s_all");
-    launch_prepare_corrector_step<double>(s0, B, num_ineq, x);
+    launch_prepare_corrector_step<double>(s0, B, num_ineq, x, ws.view());
     ipm_sync();
   });
 
@@ -157,6 +177,7 @@ void bind_ipm_kernels(nb::module_& m, nb::module_& testing) {
 
   testing.def("ipm_update_residual_nr", [s0](const nb::dict& a, int B, int n, int p, int m, int num_hl,
                                              int num_hu, int num_xl, int num_xu) {
+    auto ws = make_ws(B, int64_t(n) + p + num_hl + num_hu + num_xl + num_xu);
     UpdateResidualNrArgs<double> x;
     x.minus_Px = R(a, "minus_Px"); x.A_x = R(a, "A_x"); x.AT_y = R(a, "AT_y"); x.G_x = R(a, "G_x");
     x.GT_zh_assembled = R(a, "GT_zh_assembled"); x.zb_assembled = R(a, "zb_assembled");
@@ -188,11 +209,13 @@ void bind_ipm_kernels(nb::module_& m, nb::module_& testing) {
     x.info_dual_res_rel = F(a, "info_dual_res_rel");
     x.info_prev_primal_res = F(a, "info_prev_primal_res");
     x.info_prev_dual_res = F(a, "info_prev_dual_res");
-    launch_update_residual_nr<double>(s0, dims_of(B, n, p, m, num_hl, num_hu, num_xl, num_xu), x);
+    launch_update_residual_nr<double>(s0, dims_of(B, n, p, m, num_hl, num_hu, num_xl, num_xu), x,
+                                      ws.view());
     ipm_sync();
   });
 
   testing.def("ipm_update_residuals_r", [s0](const nb::dict& a, int B, int n, int num_duals) {
+    auto ws = make_ws(B, int64_t(n) + num_duals);
     UpdateResidualsRArgs<double> x;
     x.rho = F(a, "rho"); x.delta = F(a, "delta");
     x.res_nr_x = R(a, "res_nr_x"); x.res_nr_duals = R(a, "res_nr_duals");
@@ -206,7 +229,7 @@ void bind_ipm_kernels(nb::module_& m, nb::module_& testing) {
     x.primal_res_reg = F(a, "primal_res_reg"); x.primal_res_reg_rel = F(a, "primal_res_reg_rel");
     x.dual_res_reg = F(a, "dual_res_reg"); x.dual_res_reg_rel = F(a, "dual_res_reg_rel");
     x.primal_prox_inf = F(a, "primal_prox_inf"); x.dual_prox_inf = F(a, "dual_prox_inf");
-    launch_update_residuals_r<double>(s0, B, n, num_duals, x);
+    launch_update_residuals_r<double>(s0, B, n, num_duals, x, ws.view());
     ipm_sync();
   });
 
