@@ -156,6 +156,28 @@ objective, and residuals (see DESIGN.md section 8).
   graphs. It requests 0 bytes once per eager SOLVE, which the handler answers
   with null without touching the pool. No arena is needed.
 
+### 3.8 cuDSS REFACTORIZATION (evaluated 2026-11-03)
+
+`CUDSS_PHASE_REFACTORIZATION` (numeric re-factorization reusing the last
+FACTORIZATION) was measured on the real KKT patterns with
+`cupiqp_native_module_bench` (graph replay, 200 reps):
+
+| KKT | FACTORIZATION | REFACTORIZATION |
+|---|---|---|
+| MPC (dim 2754) | 0.810 ms | 0.809 ms |
+| Trajopt (group 0) | 0.716 ms | 0.715 ms |
+
+Accuracy is not the issue. The probe factors at iterate A, writes the KKT
+values of iterate B and refactorizes, then compares with a full factorization
+at B. The relative difference of the SOLVE result is at most 9e-14, even with
+slacks and duals spread over +-8 decades.
+
+There is no speed difference, so it is not wired into the solver: with a
+symmetric matrix, DEFAULT reordering and no hybrid memory, cuDSS 0.8 does the
+same numeric work in both phases (reordering and symbolic factorization
+already happen once, in ANALYSIS). Re-measure with the module benchmark after
+a cuDSS upgrade or a change of reordering, pivoting or hybrid settings.
+
 ## 4. Conclusion
 
 A standalone C++/CUDA sparse FP64 solver with no Python, Warp, or JAX run-time

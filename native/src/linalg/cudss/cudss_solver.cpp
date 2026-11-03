@@ -128,6 +128,11 @@ void CudssSolver::factor(cudaStream_t s) {
   ++counters_->cudss_factor_calls;
 }
 
+void CudssSolver::refactor(cudaStream_t s) {
+  execute(CUDSS_PHASE_REFACTORIZATION, s);
+  ++counters_->cudss_factor_calls;
+}
+
 void CudssSolver::solve(cudaStream_t s) {
   execute(CUDSS_PHASE_SOLVE, s);
   ++counters_->cudss_solve_calls;

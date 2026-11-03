@@ -38,6 +38,9 @@ class CudssSolver {
 
   void analyze(cudaStream_t s);  // ANALYSIS (once, at setup)
   void factor(cudaStream_t s);   // FACTORIZATION, async, capturable (also in conditional bodies)
+  // REFACTORIZATION: numeric re-factorization reusing the pivoting/structure of
+  // the last FACTORIZATION (same pattern). Requires a prior factor().
+  void refactor(cudaStream_t s);
   void solve(cudaStream_t s);    // SOLVE, async, capturable in plain graphs only
 
   // Added by M5 (not part of the original contract): sizes and the memory
