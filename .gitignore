@@ -137,3 +137,7 @@ Thumbs.db
 *.sqlite
 /native/bench/data/
 /native/tests/fixtures/generated/
+# benchmark results: keep raw per-trial JSONL/summaries, drop bulky solution dumps
+/native/bench/results/**/solutions/
+/native/bench/results/**/solutions.bin
+/native/bench/results/**/*.npz
