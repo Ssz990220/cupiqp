@@ -1,0 +1,1 @@
+cupiqp_add_test(test_ipm_kernels test_ipm_kernels.cu)
