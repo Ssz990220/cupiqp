@@ -218,15 +218,18 @@ CUDA Graphs
 |---|---|---|---|
 | M0 core | `include/cupiqp/*.hpp`, `src/core/*` (integration owner) | `settings.py`, `typedef.py`, `results.py`, `utils.py` | settings upload, status codes |
 | M1 data | `src/data/*` | `data.py`, `data_kernels.py`, `sparse/sparse_data.py`, `sparse/batched_csr.py`, `sparse/csr_helpers.py`, `sparse_solver._check_csr` | stored values, finite masks, `active_G_row`, `active_x_bound`, `num_finite_bounds`, `x_b_scaling_init` |
-| M2 spmv | `src/linalg/spmv.*` | `sparse/sparse_matvec.py` | `P x`, `A x`, `A^T y`, `G x`, `G^T z` |
-| M3 ruiz | `src/precond/*` | `preconditioner.py`, `preconditioner_kernels.py`, `sparse/sparse_preconditioner*.py` | `delta`, `delta_b`, `cost_scaling`, `x_b_scaling`, scaled data, unscale factors, RHS norm, unscaled solution |
-| M4 kkt_assembly | `src/kkt/assembly.*` | `sparse/sparse_kkt_solver.py`, `sparse_kkt_solver_kernels.py` | KKT pattern, slot maps, KKT values after scatter and after diagonal update |
-| M5 cudss | `src/linalg/cudss_solver.*`, `src/core/graph_patch.*` | `sparse/sparse_direct_solver.py` | factor/solve on given values; allocation counts |
-| M6 kkt_system | `src/kkt/system.*` | `kkt_systems.py`, `kkt_systems_kernels.py`, `kkt_solver.py` | `x_reg`, `z_reg`, `w_delta_inv`, condensed RHS, recovered step, solve status |
-| M7 ipm_kernels | `src/ipm/kernels.*` | `solver_kernels.py` (forward kernels) | each kernel's outputs from identical inputs |
+| M2 spmv | `src/spmv/*` | `sparse/sparse_matvec.py` | `P x`, `A x`, `A^T y`, `G x`, `G^T z` |
+| M3 ruiz | `src/ruiz/*` | `preconditioner.py`, `preconditioner_kernels.py`, `sparse/sparse_preconditioner*.py` | `delta`, `delta_b`, `cost_scaling`, `x_b_scaling`, scaled data, unscale factors, RHS norm, unscaled solution |
+| M4 kkt_assembly | `src/kkt_assembly/*` | `sparse/sparse_kkt_solver.py`, `sparse_kkt_solver_kernels.py` | KKT pattern, slot maps, KKT values after scatter and after diagonal update |
+| M5 cudss | `src/cudss/*` (incl. graph patch) | `sparse/sparse_direct_solver.py` | factor/solve on given values; allocation counts |
+| M6 kkt_system | `src/kkt_system/*` | `kkt_systems.py`, `kkt_systems_kernels.py`, `kkt_solver.py` | `x_reg`, `z_reg`, `w_delta_inv`, condensed RHS, recovered step, solve status |
+| M7 ipm_kernels | `src/ipm/*` | `solver_kernels.py` (forward kernels) | each kernel's outputs from identical inputs |
 | M8 solver | `src/solver/*` | `solver.py`, `sparse/sparse_solver.py` | full iterate per iteration (`max_iter = k`) |
 | M9 binding | `python/*` | public Python surface | (consumes M8) |
 | M10 bench | `bench/*`, harness adapter | `benchmark/replay_mpc_updates.py` | timings, counters |
+
+Each module also owns `tests/cpp/<module>/`, `tests/python/<module>/` and
+`python/src/bind_<module>.cpp`.
 
 Shared buffer conventions (defined in `src/core/views.hpp`; set by M0 and frozen
 before the parallel work starts):
@@ -292,3 +295,41 @@ independent CUDA API counts.
   outside JIT and `update+solve` as the custom call on XLA's stream. Not needed
   for the benchmark, which uses Warp arrays.
 - `REFACTORIZATION` phase, user-graph capture of `update()` + `solve()`.
+
+## 10. Implementation rules (all modules)
+
+1. **Allocation.** Every device and pinned buffer is allocated in `setup()`.
+   `update()`, `solve()` and IPM iterations perform no `cudaMalloc*`/`cudaFree*`
+   and no host heap allocation on the hot path (no `std::vector` growth,
+   no `std::function` construction inside loops; build closures once). cuDSS
+   is the only component that may request device memory internally. Its
+   requests go through the counting memory handler (`Counters`). If steady
+   state shows any request, M5 serves them from a device arena preallocated at
+   setup, sized from the warm-up peak, with a pool fallback that is counted
+   and reported.
+2. **CPU-GPU interaction.** Data stays on the GPU. Inside an iteration, the only
+   host interaction is the reference's continue-flag read in
+   `IterationGraphHostLoop` mode. Decisions (retries, termination, Ruiz early
+   exit, step lengths) are taken on the device.
+3. **Setup may be expensive.** It may build index maps on the host, allocate
+   every buffer, create every descriptor and workspace, run the symbolic
+   analysis, and capture graphs on first use.
+4. **Memory safety.** Device memory is owned by `CudaBuffer<T>`, pinned memory by
+   `CudaPinnedBuffer<T>`, and streams and events by `CudaStream`/`CudaEvent`.
+   Library handles and descriptors get move-only RAII owners. No raw
+   `cudaMalloc`/`cudaFree` outside `core/buffer.hpp`. Views hold non-owning
+   pointers and never outlive their owner. Sizes are checked at API
+   boundaries; kernels bounds-check their thread index.
+5. **CUB.** Block and warp reductions use `cub::BlockReduce` (`core/reduce.cuh`).
+   Device-wide scans, reductions and selects use CUB device algorithms, with
+   temporary storage preallocated at setup.
+6. **Kernels.** Version 1 mirrors the reference Warp kernel: same thread
+   mapping, the same formulas in the same order, and the same masks. Parity is
+   established on version 1. Each module then records, in its hand-off note,
+   an assessment of (1) tiling (e.g. per-row tiles of the KKT/CSR loops),
+   (2) tensor cores, and (3) shared-memory and register reuse (fusing
+   consecutive element-wise kernels, keeping per-problem scalars in
+   registers). An optimized version is merged only when it keeps parity and
+   shows a measured gain. Tensor cores: this GPU (Ada, sm_89) has no FP64
+   tensor-core path, so FP64 kernels cannot use them here. Record the
+   opportunity for FP32 or for data-center GPUs (DMMA on sm_80/sm_90).

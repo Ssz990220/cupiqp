@@ -37,8 +37,8 @@ defines, so they do not wait for M1's implementation.
 | Wave | Modules | Owner |
 |---|---|---|
 | 0 | M0 | integration owner (main session), branch `native-cuda-port` |
-| 1 (parallel) | M1, M2, M3, M4, M5, M7 | one agent each, branch `task/<module>`, worktree `~/Projects/cupiqp-native-wt/<module>` |
-| 2 | M6 | one agent (after M2, M4, M5 merge) |
+| 1 (parallel) | M1, M2, M3, M4, M5, M6, M7 (against the M0 interface headers) | one agent each, branch `task/<module>`, worktree `~/Projects/cupiqp-native-wt/<module>` |
+| 2 | M6 end-to-end KKT tests after M2, M4, M5 merge | M6 agent (continued) |
 | 3 | M8, M9 | integration owner |
 | 4 | M10, MPC/Trajopt validation | integration owner |
 
@@ -57,7 +57,7 @@ Common rules for every module:
 
 | Module | Inputs | Outputs | Upstream | Test oracle | Integration gate |
 |---|---|---|---|---|---|
-| M0 | none | public headers, `DeviceBuffer<T>`, `PinnedBuffer<T>`, `CUPIQP_CHECK_*`, `block_reduce`, graph capture helpers, `views.hpp` (SparseDataView, VariablesView, InfoView, ScalingView, DeviceSettingsView), CMake + GoogleTest + nanobind skeleton | none | builds; smoke tests of buffers, reductions, graph helpers | `ctest` and `pytest native/tests/python -k core` pass |
+| M0 | none | public headers, `CudaBuffer<T>`, `CudaPinnedBuffer<T>`, `CudaStream`, `CudaEvent`, interface headers of M1-M6, `CUPIQP_CHECK_*`, `block_reduce`, graph capture helpers, `views.hpp` (SparseDataView, VariablesView, InfoView, ScalingView, DeviceSettingsView), CMake + GoogleTest + nanobind skeleton | none | builds; smoke tests of buffers, reductions, graph helpers | `ctest` and `pytest native/tests/python -k core` pass |
 | M1 | host patterns, device value pointers | `SparseData` (device CSR values in solver storage, vectors, masks), `set_*` updates, CSR validation | M0 | C++: hand-built CSR and masks; pytest: reference `SparseData` masks and values for the same inputs, including explicit zeros and infinite bounds | validation rejects every case in `tests/solver/test_input_validation.py` that applies to sparse; masks bitwise equal to the reference |
 | M2 | `SparseData` matrices, device x | y = alpha op(M) x + beta y for P, A, A^T, G, G^T | M0 | CPU CSR mat-vec; pytest vs reference `SparseMatVecProduct` | max abs diff <= 1e-14 relative; no allocation per call; capturable |
 | M3 | `SparseData`, settings | scaled data in place, scaling state (`delta`, `delta_b`, `cost_scaling`, `x_b_scaling`, unscale factors), unscale/reuse/reset/unscale_solution, RHS inf norm, device early exit | M0, M1 header | pytest: reference `SparseRuizEquilibration` after `scale_data`, `unscale_data`, `reuse_scaling`, and `unscale_solution` on the same data; C++: identity scaling when `preconditioner_iter = 0`; the round trip `scale -> unscale` recovers the data | scaling vectors and scaled values within 1e-13 relative; same number of Ruiz passes as the reference |
