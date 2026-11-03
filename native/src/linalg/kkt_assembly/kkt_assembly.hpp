@@ -16,6 +16,7 @@
 #include "common/buffer.hpp"
 #include "common/views.hpp"
 #include "cupiqp/cupiqp.hpp"
+#include "linalg/kkt_assembly/kkt_pattern.hpp"
 
 namespace cupiqp {
 
@@ -44,12 +45,14 @@ class KktAssembly {
   void update_diagonal(const double* x_reg, const double* delta, const double* z_reg, cudaStream_t s);
 
   // Host copies for tests.
-  const CsrPattern& host_pattern() const { return host_; }
+  const CsrPattern& host_pattern() const { return maps_.kkt; }
+  // Host pattern, template values and every index map (setup-time copies).
+  const KktHostMaps& host_maps() const { return maps_; }
 
  private:
   Dims dims_;
   int32_t nnz_ = 0;
-  CsrPattern host_;
+  KktHostMaps maps_;
   CudaBuffer<int32_t> indptr_, indices_;
   CudaBuffer<int32_t> diag_x_, diag_y_, diag_z_;     // KKT slots of the diagonal blocks
   CudaBuffer<int32_t> P_slots_, A_slots_, G_slots_;  // KKT slot of every stored entry
