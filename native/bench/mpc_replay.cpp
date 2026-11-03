@@ -31,7 +31,19 @@
 #include "cupiqp/cupiqp.hpp"
 
 namespace fs = std::filesystem;
-using clk = std::chrono::steady_clock;
+#include <time.h>
+
+// Host wall clock: CLOCK_MONOTONIC_RAW (hardware TSC, not slewed by NTP). On
+// this WSL host the NTP-disciplined steady_clock ran ~6% slow on 2026-11-03
+// (checked against the Windows QPC clock; CUDA events agreed with Windows).
+struct clk {
+  using time_point = double;  // ms
+  static double now() {
+    timespec ts;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+    return ts.tv_sec * 1e3 + ts.tv_nsec * 1e-6;
+  }
+};
 
 #define CK(x)                                                                                   \
   do {                                                                                          \
@@ -218,7 +230,7 @@ struct Replay {
     auto t0 = clk::now();
     solver.setup(g.P, view(d_packets + g.total * case_index), &g.A, &g.C);
     CK(cudaStreamSynchronize(solver.stream()));
-    setup_ms = std::chrono::duration<double, std::milli>(clk::now() - t0).count();
+    setup_ms = clk::now() - t0;
   }
 
   // One update + solve + x download; returns the trial (timings when measure).
@@ -241,7 +253,7 @@ struct Replay {
     solver.download_x(h_x);
     if (measure) CK(cudaEventRecord(ev[4], s));
     CK(cudaStreamSynchronize(s));
-    t.wall_ms = std::chrono::duration<double, std::milli>(clk::now() - t0).count();
+    t.wall_ms = clk::now() - t0;
     if (measure) {
       CK(cudaEventElapsedTime(&t.upload_ms, ev[0], ev[1]));
       CK(cudaEventElapsedTime(&t.update_ms, ev[1], ev[2]));
@@ -327,7 +339,7 @@ int main(int argc, char** argv) {
       auto tf = clk::now();
       rp.solver.solve();
       CK(cudaStreamSynchronize(rp.solver.stream()));
-      double first_solve_ms = std::chrono::duration<double, std::milli>(clk::now() - tf).count();
+      double first_solve_ms = clk::now() - tf;
       cupiqp::Counters c_setup = rp.solver.counters();
 
       for (int w = 0; w < 2; ++w)  // two excluded warm-up passes, alternating modes

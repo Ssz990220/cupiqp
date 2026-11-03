@@ -35,6 +35,15 @@ import sys
 import time
 from pathlib import Path
 
+
+def raw_ns():
+    """Host clock for wall times: CLOCK_MONOTONIC_RAW (hardware TSC, not slewed
+    by NTP). On this WSL host the NTP-disciplined CLOCK_MONOTONIC used by
+    time.perf_counter ran ~6% slow on 2026-11-03 (checked against the Windows
+    QPC clock, see native/bench/tools/check_clocks.py); CUDA events agreed with
+    the Windows clock."""
+    return time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW)
+
 import numpy as np
 
 BENCH = Path(os.environ.get("QP_BENCH_ROOT", "/mnt/c/Users/91354/Projects/gpu-qp-benchmark"))
@@ -149,18 +158,18 @@ class Group:
         self.s = s
         v = self.packets[first]["values"]
         t = self.template
-        start = time.perf_counter_ns()
+        start = raw_ns()
         s.setup(P=(t["P"].indptr, t["P"].indices, v["P"]), c=v["q"],
                 A=(t["A"].indptr, t["A"].indices, v["A"]), b=v["b"],
                 G=(t["C"].indptr, t["C"].indices, v["C"]), h_l=v["l"], h_u=v["u"])
         wp.synchronize_stream(s.stream)
-        self.setup_ms = (time.perf_counter_ns() - start) / 1e6
+        self.setup_ms = (raw_ns() - start) / 1e6
         # First solve: reference JIT (if any left) and first graph capture, reported separately.
-        start = time.perf_counter_ns()
+        start = raw_ns()
         with wp.ScopedStream(s.stream):
             s.solve()
         wp.synchronize_stream(s.stream)
-        self.first_solve_ms = (time.perf_counter_ns() - start) / 1e6
+        self.first_solve_ms = (raw_ns() - start) / 1e6
         self.addresses = self.pointers()
 
     def views(self, packet):
@@ -186,7 +195,8 @@ def run_step(g, cid, mode, measure):
     s = g.s
     if measure:
         wp.record_event(events[0])
-    begin = time.perf_counter_ns()
+    begin = raw_ns()
+    begin_mono = time.perf_counter_ns()
     if mode == "host_values":
         wp.copy(g.stage, g.packets[cid]["host"])
         v = g.stage_values
@@ -205,9 +215,11 @@ def run_step(g, cid, mode, measure):
     if measure:
         wp.record_event(events[4])
     wp.synchronize_stream(s.stream)
-    end = time.perf_counter_ns()
+    end = raw_ns()
+    end_mono = time.perf_counter_ns()
     assert g.pointers() == g.addresses
-    result = dict(cpu_x_ready_wall_ms=(end - begin) / 1e6)
+    result = dict(cpu_x_ready_wall_ms=(end - begin) / 1e6,
+                  cpu_x_ready_wall_ms_perf_counter=(end_mono - begin_mono) / 1e6)
     if measure:
         for field, a, b in [("upload_event_ms", 0, 1), ("update_event_ms", 1, 2), ("solve_event_ms", 2, 3),
                             ("x_download_event_ms", 3, 4), ("gpu_x_ready_event_ms", 0, 4),
@@ -264,7 +276,9 @@ metadata = dict(
               "warm-up passes; first snapshot of each trajectory solved as an excluded seed every repeat; mode "
               "order rotates; buffers, events, packets and pinned outputs preallocated. Setup and the first "
               "solve (JIT, first graph capture) are timed separately and excluded."),
-    timing=("cpu_x_ready_wall_ms: host wall time from input values ready to x on the CPU, one explicit wait. "
+    timing=("cpu_x_ready_wall_ms: host wall time (CLOCK_MONOTONIC_RAW) from input values ready to x on the CPU, "
+            "one explicit wait; cpu_x_ready_wall_ms_perf_counter is the same interval on time.perf_counter (the "
+            "original harness clock, NTP-slewed). "
             "Includes Python-side call overhead of update()/solve() for both backends; the pure native C++ "
             "path is measured separately by native/bench/mpc_replay.cpp."),
     numerical_warm_start=False,
