@@ -158,13 +158,14 @@ class SparseSolver:
 
     def __init__(self, dtype=None, stream=None):
         import warp as wp
+        wp.init()  # as the reference SolverBase does; idempotent
         if dtype is not None and dtype is not wp.float64:
             raise TypeError("cupiqp_native milestone 1 supports float64 only")
         external = 0 if stream is None else int(stream.cuda_stream)
         self._native = _ext.NativeSparseSolver(external)
         self._settings = Settings(self._native.settings)
         self._wp_stream = stream if stream is not None else wp.Stream(
-            "cuda:0", cuda_stream=self._native.stream)
+            wp.get_device("cuda:0"), cuda_stream=self._native.stream)
         self._result = Result(self)
         self._sizes = None
 
@@ -172,6 +173,18 @@ class SparseSolver:
     @property
     def settings(self) -> Settings:
         return self._settings
+
+    @settings.setter
+    def settings(self, value) -> None:
+        """Copy every field of ``value`` (a native or reference Settings) into
+        this solver's settings, like assigning ``cupiqp.Settings``."""
+        names = [n for n in dir(self._settings._native) if not n.startswith("_") and n != "verify"]
+        for name in names:
+            if hasattr(value, name):
+                setattr(self._settings, name, getattr(value, name))
+        for name in list(_UNSUPPORTED_DEFAULTS) + list(_IGNORED):
+            if hasattr(value, name):
+                setattr(self._settings, name, getattr(value, name))
 
     @property
     def stream(self):
