@@ -1,0 +1,13 @@
+{
+ "utc": "2026-11-03T19:04:18Z",
+ "windows_qpc_s": 15.137123399999837,
+ "ratio_to_windows": {
+  "MONOTONIC": 0.9685816519142108,
+  "MONOTONIC_RAW": 0.9910477724585816,
+  "REALTIME": 0.9685817020352098,
+  "CUDA_EVENTS": 0.9909671858871919
+ },
+ "note": "windows interval includes two powershell launches (~0.2-0.4 s); CUDA events cover only the busy wait",
+ "cuda_events_over_monotonic_raw": 0.9999186854825476,
+ "taken": "after the benchmark finished (the in-run checks wrote the Warp banner into the JSON file)"
+}

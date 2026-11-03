@@ -1,0 +1,60 @@
+Capture range started in the application.
+Capture range ended in the application.
+Generating '/tmp/nsys-report-7221.qdstrm'
+[1/1] [0%                          ] mpc-reference-iteration.nsys-repProcessing events...
+[1/1] [0%                          ] mpc-reference-iteration.nsys-rep[1/1] [6%                          ] mpc-reference-iteration.nsys-rep[1/1] [12%                         ] mpc-reference-iteration.nsys-rep[1/1] [==19%                       ] mpc-reference-iteration.nsys-rep[1/1] [===========51%              ] mpc-reference-iteration.nsys-rep[1/1] [===========52%              ] mpc-reference-iteration.nsys-rep[1/1] [===========53%              ] mpc-reference-iteration.nsys-rep[1/1] [============54%             ] mpc-reference-iteration.nsys-rep[1/1] [============55%             ] mpc-reference-iteration.nsys-rep[1/1] [============56%             ] mpc-reference-iteration.nsys-rep[1/1] [============57%             ] mpc-reference-iteration.nsys-rep[1/1] [=============58%            ] mpc-reference-iteration.nsys-rep[1/1] [=============59%            ] mpc-reference-iteration.nsys-rep[1/1] [=============60%            ] mpc-reference-iteration.nsys-rep[1/1] [==============62%           ] mpc-reference-iteration.nsys-rep[1/1] [========================100%] mpc-reference-iteration.nsys-rep[1/1] [========================100%] mpc-reference-iteration.nsys-rep
+Warp 1.19.0 initialized:
+   CUDA Toolkit 13.4, Driver 13.3
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 4070 SUPER" (12 GiB, sm_89, mempool enabled)
+   Kernel cache:
+     /home/sizhe/.cache/warp-cupiqp-native/1.19.0
+Module cupiqp.data_kernels 501c396 load on device 'cuda:0' took 0.71 ms  (cached)
+Module cupiqp.sparse.sparse_preconditioner_kernels bf935c7 load on device 'cuda:0' took 0.53 ms  (cached)
+Module cupiqp.preconditioner_kernels 1ce9273 load on device 'cuda:0' took 0.47 ms  (cached)
+Module create_ruiz_conv_check_kernel__locals__conv_check_kernel_2af4cfab 2af4cfa load on device 'cuda:0' took 0.43 ms  (cached)
+Module create_solution_finite_kernel__locals__solution_finite_kernel_7768d463 7768d46 load on device 'cuda:0' took 0.65 ms  (cached)
+Module cupiqp.sparse.sparse_kkt_solver_kernels 6bfa940 load on device 'cuda:0' took 0.47 ms  (cached)
+Module update_continue_flag_kernel_7d7402d9 57a889b load on device 'cuda:0' took 0.60 ms  (cached)
+Module any_flag_kernel_f7ac07cb 571b217 load on device 'cuda:0' took 0.42 ms  (cached)
+Module create_update_residuals_r_kernel__locals__update_residuals_r_kernel_511cc7c7 511cc7c load on device 'cuda:0' took 0.42 ms  (cached)
+Module create_update_residual_nr_kernel__locals__update_residual_nr_kernel_ec228db2 ec228db load on device 'cuda:0' took 0.46 ms  (cached)
+Module create_init_guess_center_kernel__locals__init_guess_center_kernel_e0b01521 e0b0152 load on device 'cuda:0' took 0.45 ms  (cached)
+Module create_calculate_step_kernel__locals__calculate_step_kernel_79ca88c0 79ca88c load on device 'cuda:0' took 0.53 ms  (cached)
+Module create_calculate_mu_kernel__locals__calculate_mu_kernel_c90680e3 c90680e load on device 'cuda:0' took 0.49 ms  (cached)
+Module create_prepare_factor_and_predictor_step_kernel__locals__prepare_factor_and_predictor_step_kernel_7712253c 7712253 load on device 'cuda:0' took 0.54 ms  (cached)
+Module create_prepare_corrector_step_kernel__locals__prepare_corrector_step_kernel_d3256ca6 d3256ca load on device 'cuda:0' took 0.45 ms  (cached)
+Module create_compute_constraints_rhs_inf_norm_unscaled_kernel__locals__kernel_ed8875ce ed8875c load on device 'cuda:0' took 0.44 ms  (cached)
+Module map__product3 2f3d196 load on device 'cuda:0' took 0.41 ms  (cached)
+Module cupiqp.solver_kernels e7435b0 load on device 'cuda:0' took 0.77 ms  (cached)
+Module cupiqp.kkt_systems_kernels f9a6365 load on device 'cuda:0' took 0.86 ms  (cached)
+{
+  "backend": "reference",
+  "dataset": "mpc",
+  "graph_mode": null,
+  "eps": 1e-08,
+  "source_cases": [
+    "main-khi-001-pick-step0036",
+    "main-khi-001-pick-step0054"
+  ],
+  "status": "CUPIQP_SOLVED",
+  "iterations": 25,
+  "validation": {
+    "finite": true,
+    "objective": -0.009310410892128947,
+    "equality_inf": 2.168404344971009e-19,
+    "inequality_inf": 0.0,
+    "primal_pass": true,
+    "tolerance": 1e-06,
+    "kkt_pass": true,
+    "dual_available": true,
+    "stationarity_inf": 1.5338930126063133e-10,
+    "complementarity_inf": 1.431465088778514e-15,
+    "dual_domain_inf": 0.0
+  },
+  "profile_range": "One warmed update(all matrices/vectors)+solve+device completion; inputs pre-uploaded; setup, JIT, first capture, status reads, downloads and validation outside the range.",
+  "native_counters_in_range": null
+}
+Generated:
+	/home/sizhe/Projects/cupiqp-native/native/bench/results/mpc-20261103/profile/mpc-reference-iteration.nsys-rep

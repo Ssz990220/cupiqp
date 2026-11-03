@@ -1,0 +1,46 @@
+Warp 1.19.0 initialized:
+   CUDA Toolkit 13.4, Driver 13.3
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 4070 SUPER" (12 GiB, sm_89, mempool enabled)
+   Kernel cache:
+     /home/sizhe/.cache/warp-cupiqp-native/1.19.0
+Module cupiqp.data_kernels 501c396 load on device 'cuda:0' took 0.68 ms  (cached)
+Module cupiqp.sparse.sparse_preconditioner_kernels bf935c7 load on device 'cuda:0' took 501.81 ms  (compiled)
+Module cupiqp.preconditioner_kernels 1ce9273 load on device 'cuda:0' took 174.39 ms  (compiled)
+Module create_ruiz_conv_check_kernel__locals__conv_check_kernel_2af4cfab 2af4cfa load on device 'cuda:0' took 0.44 ms  (cached)
+Module create_solution_finite_kernel__locals__solution_finite_kernel_7768d463 7768d46 load on device 'cuda:0' took 0.50 ms  (cached)
+Module cupiqp.sparse.sparse_kkt_solver_kernels 6bfa940 load on device 'cuda:0' took 107.67 ms  (compiled)
+Module update_continue_flag_kernel_7d7402d9 57a889b load on device 'cuda:0' took 0.58 ms  (cached)
+Module any_flag_kernel_f7ac07cb 571b217 load on device 'cuda:0' took 0.40 ms  (cached)
+Module create_update_residuals_r_kernel__locals__update_residuals_r_kernel_511cc7c7 511cc7c load on device 'cuda:0' took 0.39 ms  (cached)
+Module create_update_residual_nr_kernel__locals__update_residual_nr_kernel_ec228db2 ec228db load on device 'cuda:0' took 0.44 ms  (cached)
+Module create_init_guess_center_kernel__locals__init_guess_center_kernel_e0b01521 e0b0152 load on device 'cuda:0' took 0.42 ms  (cached)
+Module create_calculate_step_kernel__locals__calculate_step_kernel_79ca88c0 79ca88c load on device 'cuda:0' took 0.43 ms  (cached)
+Module create_calculate_mu_kernel__locals__calculate_mu_kernel_c90680e3 c90680e load on device 'cuda:0' took 0.39 ms  (cached)
+Module create_prepare_factor_and_predictor_step_kernel__locals__prepare_factor_and_predictor_step_kernel_7712253c 7712253 load on device 'cuda:0' took 0.37 ms  (cached)
+Module create_prepare_corrector_step_kernel__locals__prepare_corrector_step_kernel_d3256ca6 d3256ca load on device 'cuda:0' took 0.39 ms  (cached)
+Module create_compute_constraints_rhs_inf_norm_unscaled_kernel__locals__kernel_ed8875ce ed8875c load on device 'cuda:0' took 0.36 ms  (cached)
+Module cupiqp.solver_kernels e7435b0 load on device 'cuda:0' took 250.87 ms  (compiled)
+Module cupiqp.kkt_systems_kernels f9a6365 load on device 'cuda:0' took 295.61 ms  (compiled)
+Module map__product3 2f3d196 load on device 'cuda:0' took 0.50 ms  (cached)
+Completed replay 1/20; timed transitions=96
+Completed replay 2/20; timed transitions=192
+Completed replay 3/20; timed transitions=288
+Completed replay 4/20; timed transitions=384
+Completed replay 5/20; timed transitions=480
+Completed replay 6/20; timed transitions=576
+Completed replay 7/20; timed transitions=672
+Completed replay 8/20; timed transitions=768
+Completed replay 9/20; timed transitions=864
+Completed replay 10/20; timed transitions=960
+Completed replay 11/20; timed transitions=1056
+Completed replay 12/20; timed transitions=1152
+Completed replay 13/20; timed transitions=1248
+Completed replay 14/20; timed transitions=1344
+Completed replay 15/20; timed transitions=1440
+Completed replay 16/20; timed transitions=1536
+Completed replay 17/20; timed transitions=1632
+Completed replay 18/20; timed transitions=1728
+Completed replay 19/20; timed transitions=1824
+Completed replay 20/20; timed transitions=1920

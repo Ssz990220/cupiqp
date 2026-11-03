@@ -1,0 +1,23 @@
+group group_0.bin: repeat 1/20 done (timed so far 96)
+group group_0.bin: repeat 2/20 done (timed so far 192)
+group group_0.bin: repeat 3/20 done (timed so far 288)
+group group_0.bin: repeat 4/20 done (timed so far 384)
+group group_0.bin: repeat 5/20 done (timed so far 480)
+group group_0.bin: repeat 6/20 done (timed so far 576)
+group group_0.bin: repeat 7/20 done (timed so far 672)
+group group_0.bin: repeat 8/20 done (timed so far 768)
+group group_0.bin: repeat 9/20 done (timed so far 864)
+group group_0.bin: repeat 10/20 done (timed so far 960)
+group group_0.bin: repeat 11/20 done (timed so far 1056)
+group group_0.bin: repeat 12/20 done (timed so far 1152)
+group group_0.bin: repeat 13/20 done (timed so far 1248)
+group group_0.bin: repeat 14/20 done (timed so far 1344)
+group group_0.bin: repeat 15/20 done (timed so far 1440)
+group group_0.bin: repeat 16/20 done (timed so far 1536)
+group group_0.bin: repeat 17/20 done (timed so far 1632)
+group group_0.bin: repeat 18/20 done (timed so far 1728)
+group group_0.bin: repeat 19/20 done (timed so far 1824)
+group group_0.bin: repeat 20/20 done (timed so far 1920)
+done: 1920 timed transitions -> native/bench/results/mpc-20261103/native-cpp
+gpu_resident: 960/960 pass KKT@1e-6, statuses {'CUPIQP_SOLVED': 960}, iters p50 24.5 max 28.0, wall p50 38.369 ms p95 41.696, update p50 0.906, solve p50 37.443
+host_values: 960/960 pass KKT@1e-6, statuses {'CUPIQP_SOLVED': 960}, iters p50 24.5 max 28.0, wall p50 38.227 ms p95 41.715, update p50 0.896, solve p50 37.208

@@ -3,7 +3,7 @@
 Prints JSON with the ratio of each Linux clock and of CUDA event time to the
 Windows QueryPerformanceCounter clock over --seconds (busy wait on
 CLOCK_MONOTONIC_RAW). A ratio far from 1 means that clock must not be used for
-wall times. Usage: .venv/bin/python native/bench/tools/check_clocks.py [--seconds 20]
+wall times. Usage: .venv/bin/python native/bench/tools/check_clocks.py [--seconds 20] [--out clocks.json]
 """
 import argparse
 import json
@@ -14,15 +14,16 @@ PS = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
 
 
 def windows_seconds():
-    out = subprocess.run([PS, "-NoProfile", "-Command",
+    out = subprocess.run([PS, "-NoProfile", "-NonInteractive", "-InputFormat", "None", "-Command",
                           "[System.Diagnostics.Stopwatch]::GetTimestamp(); [System.Diagnostics.Stopwatch]::Frequency"],
-                         capture_output=True, text=True, check=True).stdout.split()
+                         capture_output=True, text=True, check=True, stdin=subprocess.DEVNULL).stdout.split()
     return int(out[0]) / int(out[1])
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--seconds", type=float, default=20.0)
+    ap.add_argument("--out", help="write the JSON here (stdout also carries the Warp banner)")
     args = ap.parse_args()
     import warp as wp
     wp.config.quiet = True
@@ -47,7 +48,11 @@ def main():
            "note": "windows interval includes two powershell launches (~0.2-0.4 s); CUDA events cover only the busy wait"}
     out["ratio_to_windows"]["CUDA_EVENTS"] = wp.get_event_elapsed_time(e0, e1) / 1e3 / win
     out["cuda_events_over_monotonic_raw"] = (wp.get_event_elapsed_time(e0, e1) / 1e3) / (t1["MONOTONIC_RAW"] - t0["MONOTONIC_RAW"])
-    print(json.dumps(out, indent=1))
+    text = json.dumps(out, indent=1)
+    if args.out:
+        with open(args.out, "w") as f:
+            f.write(text + "\n")
+    print(text)
 
 
 if __name__ == "__main__":
