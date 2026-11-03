@@ -1,0 +1,33 @@
+Running main() from /home/sizhe/Projects/cupiqp-native-wt/multiblock_reductions/build/native/_deps/googletest-src/googletest/src/gtest_main.cc
+[==========] Running 2 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 2 tests from IpmMultiblockTiming
+[ RUN      ] IpmMultiblockTiming.DISABLED_KernelsVsBlocksPerProblem
+mpc      nb=   1  residual_nr   22.55 us  calculate_step   8.71 us  calculate_mu   4.00 us
+mpc      nb=   2  residual_nr   15.42 us  calculate_step   9.62 us  calculate_mu   4.32 us
+mpc      nb=   4  residual_nr   10.33 us  calculate_step   5.70 us  calculate_mu   3.42 us
+mpc      nb=   8  residual_nr    8.03 us  calculate_step   4.08 us  calculate_mu   2.90 us
+mpc      nb=  16  residual_nr    6.62 us  calculate_step   3.45 us  calculate_mu   2.81 us
+mpc      nb=  32  residual_nr    6.42 us  calculate_step   3.11 us  calculate_mu   2.67 us
+mpc      nb=  64  residual_nr    7.07 us  calculate_step   2.61 us  calculate_mu   2.36 us
+mpc      nb= 128  residual_nr   10.35 us  calculate_step   2.99 us  calculate_mu   2.69 us
+trajopt  nb=   1  residual_nr   44.19 us  calculate_step  16.14 us  calculate_mu   6.77 us
+trajopt  nb=   2  residual_nr   28.30 us  calculate_step  16.52 us  calculate_mu   6.06 us
+trajopt  nb=   4  residual_nr   16.60 us  calculate_step   9.59 us  calculate_mu   4.22 us
+trajopt  nb=   8  residual_nr   10.77 us  calculate_step   6.10 us  calculate_mu   3.30 us
+trajopt  nb=  16  residual_nr    8.02 us  calculate_step   4.35 us  calculate_mu   2.96 us
+trajopt  nb=  32  residual_nr    6.83 us  calculate_step   3.79 us  calculate_mu   2.73 us
+trajopt  nb=  64  residual_nr    8.06 us  calculate_step   2.94 us  calculate_mu   2.66 us
+trajopt  nb= 128  residual_nr   10.43 us  calculate_step   3.06 us  calculate_mu   2.74 us
+[       OK ] IpmMultiblockTiming.DISABLED_KernelsVsBlocksPerProblem (680 ms)
+[ RUN      ] IpmMultiblockTiming.DISABLED_PrimitiveAlone
+nb=   1  none   1.85 us  K=23 mixed   2.87 us  K=1   0.95 us  K=23 sum   4.73 us  K=23 max   2.31 us
+nb=   8  none   1.85 us  K=23 mixed   4.04 us  K=1   1.85 us  K=23 sum   5.70 us  K=23 max   3.32 us
+nb=  32  none   1.89 us  K=23 mixed   4.50 us  K=1   1.90 us  K=23 sum   6.09 us  K=23 max   3.63 us
+nb= 128  none   4.45 us  K=23 mixed  10.50 us  K=1   2.48 us  K=23 sum  16.10 us  K=23 max   7.19 us
+[       OK ] IpmMultiblockTiming.DISABLED_PrimitiveAlone (113 ms)
+[----------] 2 tests from IpmMultiblockTiming (794 ms total)
+
+[----------] Global test environment tear-down
+[==========] 2 tests from 1 test suite ran. (795 ms total)
+[  PASSED  ] 2 tests.

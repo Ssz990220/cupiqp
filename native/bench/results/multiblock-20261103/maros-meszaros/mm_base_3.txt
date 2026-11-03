@@ -1,0 +1,59 @@
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+>       assert status[0] == Status.CUPIQP_SOLVED, f"Solver failed with status {status}"
+CONT-101
+CONT-201
+CONT-300
+LISWET10
+LISWET7
+PRIMALC1
+PRIMALC2
+PRIMALC5
+PRIMALC8
+Q25FV47
+QE226
+QETAMACR
+QFFFFF80
+QISRAEL
+QPILOTNO
+QSC205
+QSCFXM1
+QSCORPIO
+QSCRS8
+QSCTAP1
+QSCTAP2
+QSCTAP3
+QSHARE2B
+QSHIP04L
+QSHIP08L
+QSHIP08S
+QSHIP12L
+QSIERRA
+STADAT1
+29 failed, 109 passed, 138 warnings in 44.62s
