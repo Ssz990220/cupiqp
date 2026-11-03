@@ -273,9 +273,10 @@ __global__ void corrector_rhs_kernel(int32_t B, int32_t num_ineq, PrepareCorrect
   if (tid >= int64_t(B) * num_ineq) return;
   const int64_t b = tid / num_ineq;
   const int64_t k = tid - b * num_ineq;
-  const T sigma_b = a.sigma[b];
-  const T mu_b = a.mu[b];
-  T r = a.res_s_all(b, k) - a.step_s_all(b, k) * a.step_z_all(b, k) + sigma_b * mu_b;
+  // sigma * mu is rounded on its own (never contracted into an FMA), as in
+  // the one-block kernel where it is a loop-invariant product.
+  const T sigma_mu = mul_rn(a.sigma[b], a.mu[b]);
+  T r = a.res_s_all(b, k) - a.step_s_all(b, k) * a.step_z_all(b, k) + sigma_mu;
   a.res_s_all(b, k) = r * a.finite_mask_all(b, k);
 }
 

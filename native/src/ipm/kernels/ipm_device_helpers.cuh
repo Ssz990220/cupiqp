@@ -47,6 +47,10 @@ __device__ __forceinline__ T wmax(T a, T b) { return ::fmax(a, b); }
 template <class T>
 __device__ __forceinline__ T wclamp(T x, T lo, T hi) { return ::fmin(::fmax(lo, x), hi); }
 
+// Product rounded on its own (never contracted into an FMA).
+__device__ __forceinline__ double mul_rn(double a, double b) { return __dmul_rn(a, b); }
+__device__ __forceinline__ float mul_rn(float a, float b) { return __fmul_rn(a, b); }
+
 // Machine epsilon of the dtype (np.finfo(dtype).eps).
 template <class T> struct MachineEps;
 template <> struct MachineEps<double> { static constexpr double value = 2.220446049250313e-16; };
