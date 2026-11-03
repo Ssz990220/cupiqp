@@ -219,9 +219,9 @@ CUDA Graphs
 | Module | Native files (owner) | Reference source | Intermediate quantities for parity |
 |---|---|---|---|
 | M0 core | `include/cupiqp/*.hpp`, `src/common/*` (integration owner) | `settings.py`, `typedef.py`, `results.py`, `utils.py` | settings upload, status codes |
-| M1 data | `src/problem/data/*` | `data.py`, `data_kernels.py`, `sparse/sparse_data.py`, `sparse/batched_csr.py`, `sparse/csr_helpers.py`, `sparse_solver._check_csr` | stored values, finite masks, `active_G_row`, `active_x_bound`, `num_finite_bounds`, `x_b_scaling_init` |
+| M1 data | `src/problem/data/*` | `data.py`, `data_kernels.py`, `sparse/sparse_data.py`, `sparse/batched_csr.py`, `sparse/csr_helpers.py`, `sparse_solver._check_csr` | stored values, finite masks, `active_G_row`, `active_x_bound`, `num_finite_bounds` |
 | M2 spmv | `src/linalg/spmv/*` | `sparse/sparse_matvec.py` | `P x`, `A x`, `A^T y`, `G x`, `G^T z` |
-| M3 ruiz | `src/problem/ruiz/*` | `preconditioner.py`, `preconditioner_kernels.py`, `sparse/sparse_preconditioner*.py` | `delta`, `delta_b`, `cost_scaling`, `x_b_scaling`, scaled data, unscale factors, RHS norm, unscaled solution |
+| M3 ruiz | `src/problem/ruiz/*` | `preconditioner.py`, `preconditioner_kernels.py`, `sparse/sparse_preconditioner*.py` | `delta`, `delta_b`, `cost_scaling`, `x_b_scaling` (init aliases `active_x_bound`), scaled data, unscale factors, RHS norm, unscaled solution |
 | M4 kkt_assembly | `src/linalg/kkt_assembly/*` | `sparse/sparse_kkt_solver.py`, `sparse_kkt_solver_kernels.py` | KKT pattern, slot maps, KKT values after scatter and after diagonal update |
 | M5 cudss | `src/linalg/cudss/*` (incl. graph patch) | `sparse/sparse_direct_solver.py` | factor/solve on given values; allocation counts |
 | M6 kkt_system | `src/linalg/kkt_system/*` | `kkt_systems.py`, `kkt_systems_kernels.py`, `kkt_solver.py` | `x_reg`, `z_reg`, `w_delta_inv`, condensed RHS, recovered step, solve status |

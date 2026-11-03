@@ -153,7 +153,7 @@ struct ScalingView {
   T* cost_scaling = nullptr;               // (B,)
   T* cost_scaling_inv = nullptr;           // (B,)
   T* x_b_scaling = nullptr;                // (B, n) = x_b_scaling_init * delta_b * D_x
-  const T* x_b_scaling_init = nullptr;     // (B, n): active_x_bound if box bounds exist, else 1
+  const T* x_b_scaling_init = nullptr;     // (B, n): data.active_x_bound (zeros without box bounds)
   T* dual_res_unscale_factor = nullptr;    // (B, n)
   T* primal_res_unscale_factor = nullptr;  // (B, p + num_ineq)
 };

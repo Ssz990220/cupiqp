@@ -22,7 +22,8 @@ contract `native/src/problem/ruiz/ruiz.hpp`.
 - Required difference 2: `unscale_data(data, replaced, s)` skips replaced blocks. Retained blocks must
   match the reference exactly. Work out which per-block operations are independent (P and c share cost
   scaling; A/b; G/h_l/h_u; box bounds). The `x_b_scaling` update always runs.
-- `x_b_scaling_init` aliases `data.active_x_bound` when any box side exists, else a ones buffer.
+- `x_b_scaling_init` aliases `data.active_x_bound` (all zeros without box bounds), as the reference
+  `SparseSolver` always passes it; a ones buffer only if that pointer is null.
   Handle absent A, G, and bound sides.
 - Reductions through `core/reduce.cuh` (cub). Max-norms are order-independent, so aim for bitwise
   parity. For CSR column norms, find how the reference computes them and reproduce deterministically.
