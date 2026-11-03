@@ -1,0 +1,52 @@
+Capture range started in the application.
+Capture range ended in the application.
+Generating '/tmp/nsys-report-1403.qdstrm'
+[1/1] [0%                          ] mpc-native-iteration.nsys-repProcessing events...
+[1/1] [0%                          ] mpc-native-iteration.nsys-rep[1/1] [7%                          ] mpc-native-iteration.nsys-rep[1/1] [12%                         ] mpc-native-iteration.nsys-rep[1/1] [============55%             ] mpc-native-iteration.nsys-rep[1/1] [============56%             ] mpc-native-iteration.nsys-rep[1/1] [============57%             ] mpc-native-iteration.nsys-rep[1/1] [========================100%] mpc-native-iteration.nsys-rep[1/1] [========================100%] mpc-native-iteration.nsys-rep
+Warp 1.19.0 initialized:
+   CUDA Toolkit 13.4, Driver 13.3
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 4070 SUPER" (12 GiB, sm_89, mempool enabled)
+   Kernel cache:
+     /home/sizhe/.cache/warp-cupiqp-native/1.19.0
+{
+  "backend": "native",
+  "dataset": "mpc",
+  "graph_mode": "iteration",
+  "eps": 1e-08,
+  "source_cases": [
+    "main-khi-001-pick-step0036",
+    "main-khi-001-pick-step0054"
+  ],
+  "status": "CUPIQP_SOLVED",
+  "iterations": 25,
+  "validation": {
+    "finite": true,
+    "objective": -0.009310410892128949,
+    "equality_inf": 2.168404344971009e-19,
+    "inequality_inf": 0.0,
+    "primal_pass": true,
+    "tolerance": 1e-06,
+    "kkt_pass": true,
+    "dual_available": true,
+    "stationarity_inf": 1.5338885717142148e-10,
+    "complementarity_inf": 1.4314650887407012e-15,
+    "dual_domain_inf": 0.0
+  },
+  "profile_range": "One warmed update(all matrices/vectors)+solve+device completion; inputs pre-uploaded; setup, JIT, first capture, status reads, downloads and validation outside the range.",
+  "native_counters_in_range": {
+    "host_syncs": 26,
+    "graph_launches": 27,
+    "graph_captures": 0,
+    "cudss_device_allocs": 0,
+    "cudss_device_frees": 0,
+    "cudss_analysis_calls": 0,
+    "cudss_factor_calls": 0,
+    "cudss_solve_calls": 0,
+    "updates": 1,
+    "solves": 1
+  }
+}
+Generated:
+	/home/sizhe/Projects/cupiqp-native/native/bench/results/kernel-profile-20261103/mpc-native-iteration.nsys-rep
