@@ -49,10 +49,28 @@ class SparseData {
   UpdateMask set_values_from_host(const ValuesView& host_v, cudaStream_t s);
 
   // Recompute finite_mask_all, active_G_row, active_x_bound, num_finite_bounds
-  // (reference finite_bound_masks_kernel: finite iff -PIQP_INF < v < PIQP_INF).
+  // (reference finite_bound_masks_kernel: a lower bound is finite iff
+  // v > -PIQP_INF, an upper bound iff v < PIQP_INF).
   void update_finite_masks(cudaStream_t s);
+  // Version 1 of the mask kernel (one thread per problem, the Warp kernel's
+  // thread mapping). Same outputs as update_finite_masks; kept for parity
+  // tests and timing.
+  void update_finite_masks_reference(cudaStream_t s);
+
+  // Bound sides given at init() (fixed for the lifetime of the object; true
+  // even when the side has zero length because m == 0 or n == 0).
+  bool has_h_l() const { return has_hl_; }
+  bool has_h_u() const { return has_hu_; }
+  bool has_x_l() const { return has_xl_; }
+  bool has_x_u() const { return has_xu_; }
+  bool initialized() const { return initialized_; }
 
  private:
+  UpdateMask apply_values(const ValuesView& v, cudaMemcpyKind kind, cudaStream_t s);
+  void check_update(const ValuesView& v) const;
+
+  bool initialized_ = false;
+  bool has_hl_ = false, has_hu_ = false, has_xl_ = false, has_xu_ = false;
   Dims dims_;
   CsrPattern P_host_, A_host_, G_host_;
   // Device storage (see SparseDataView for meaning and shapes).
