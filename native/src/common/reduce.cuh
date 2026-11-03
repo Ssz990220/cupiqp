@@ -30,13 +30,22 @@ struct SumOp {
   template <class T>
   __device__ __forceinline__ T operator()(const T& a, const T& b) const { return a + b; }
 };
+// Max/min follow Warp's wp.max / wp.min / tile_max semantics: for floating
+// point they are fmax / fmin (a NaN operand is ignored unless both are NaN);
+// integers use ordinary compares.
 struct MaxOp {
   template <class T>
-  __device__ __forceinline__ T operator()(const T& a, const T& b) const { return a > b ? a : b; }
+  __device__ __forceinline__ T operator()(const T& a, const T& b) const {
+    if constexpr (std::is_floating_point_v<T>) return fmax(a, b);
+    else return a > b ? a : b;
+  }
 };
 struct MinOp {
   template <class T>
-  __device__ __forceinline__ T operator()(const T& a, const T& b) const { return a < b ? a : b; }
+  __device__ __forceinline__ T operator()(const T& a, const T& b) const {
+    if constexpr (std::is_floating_point_v<T>) return fmin(a, b);
+    else return a < b ? a : b;
+  }
 };
 
 // Block-wide reduction broadcast to all threads (cub::BlockReduce + shared

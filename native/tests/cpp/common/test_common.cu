@@ -53,7 +53,7 @@ __global__ void outer_tail(int* outer_counter, int* outer_cond, int* inner_count
 
 }  // namespace
 
-TEST(Core, BufferRoundTripAndEmpty) {
+TEST(Common, BufferRoundTripAndEmpty) {
   CudaStream s = CudaStream::create();
   CudaBuffer<double> b(5);
   std::vector<double> h{1, 2, 3, 4, 5}, back(5);
@@ -70,7 +70,7 @@ TEST(Core, BufferRoundTripAndEmpty) {
   EXPECT_THROW(moved.allocate(3), Error);
 }
 
-TEST(Core, ReductionBlockDimMatchesReference) {
+TEST(Common, ReductionBlockDimMatchesReference) {
   EXPECT_EQ(reduction_block_dim(1), 32);
   EXPECT_EQ(reduction_block_dim(256), 32);
   EXPECT_EQ(reduction_block_dim(257), 64);
@@ -79,7 +79,7 @@ TEST(Core, ReductionBlockDimMatchesReference) {
   EXPECT_EQ(reduction_block_dim(1 << 20), 256);
 }
 
-TEST(Core, BlockReductionsAllWidths) {
+TEST(Common, BlockReductionsAllWidths) {
   std::mt19937_64 gen(7);
   std::uniform_real_distribution<double> d(-3, 3);
   CudaStream s = CudaStream::create();
@@ -103,6 +103,24 @@ TEST(Core, BlockReductionsAllWidths) {
     EXPECT_EQ(r[1], *std::max_element(h.begin(), h.end()));
     EXPECT_EQ(r[2], *std::min_element(h.begin(), h.end()));
   }
+}
+
+namespace {
+__global__ void nan_reduce_kernel(double* out) {
+  double v = threadIdx.x == 3 ? NAN : static_cast<double>(threadIdx.x);
+  out[0] = block_max<32>(v);
+  out[1] = block_min<32>(v);
+}
+}  // namespace
+
+TEST(Common, BlockMaxMinIgnoreNanLikeWarp) {
+  CudaBuffer<double> out(2);
+  nan_reduce_kernel<<<1, 32>>>(out.data());
+  CUPIQP_CUDA_CHECK_LAUNCH();
+  double r[2];
+  CUPIQP_CUDA_CHECK(cudaMemcpy(r, out.data(), sizeof r, cudaMemcpyDeviceToHost));
+  EXPECT_EQ(r[0], 31.0);
+  EXPECT_EQ(r[1], 0.0);
 }
 
 class CaptureWhile : public ::testing::Test {
