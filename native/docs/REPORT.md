@@ -221,3 +221,23 @@ medians.
 Trajopt ran slower overall in this session than in section 4 (the reference
 went from 50.5 to 55.4 ms). Compare configurations within one session only;
 the harness records GPU telemetry for each run.
+
+## 10. Multi-block reductions for a single QP (added 2026-11-03)
+
+With B = 1 the "one block per problem" reduction kernels (ported from the
+reference's `wp.launch_tiled(dim=[B])`) ran on one SM. They now split one
+problem over several blocks with a deterministic last-block combine
+(`native/src/common/multiblock.cuh`, design and data in
+`native/docs/modules/multiblock_reductions.md`). With large B they keep one
+block per problem.
+
+| Native C++ replay, default mode, 20 repeats, gpu_resident | MPC before | MPC after | Trajopt before | Trajopt after |
+|---|---|---|---|---|
+| IPM kernels per iteration (us) | 125.2 | 42.1 | 248.1 | 43.7 |
+| End-to-end wall p50 (ms) | 37.91 | 35.79 | 46.53 | 39.96 |
+| End-to-end wall p95 (ms) | 41.25 | 38.96 | 54.16 | 46.25 |
+| KKT@1e-6 | 960/960 | 960/960 | 480/480 | 480/480 |
+
+Iteration statistics are unchanged. Min/max outputs, integer outputs, sigma
+and the corrector rhs remain bitwise equal to the reference; sums differ by
+order only (primal_obj up to 11 ulp).
