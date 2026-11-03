@@ -105,7 +105,9 @@ class SparseSolver {
 - Value arrays are in the stored-entry order of the pattern given to `setup()`.
   Explicit zeros are retained, can later become nonzero, and keep the same KKT
   slot.
-- Bounds use `PIQP_INF = 1e20`: a bound is finite iff `-1e20 < v < 1e20`.
+- Bounds use `PIQP_INF = 1e20`, tested one-sided as in the reference
+  `finite_bound_masks_kernel`: a lower bound (`h_l`, `x_l`) is finite iff
+  `v > -1e20`, and an upper bound (`h_u`, `x_u`) is finite iff `v < 1e20`.
   Bound sides given at setup (`h_l`, `h_u`, `x_l`, `x_u`) are fixed for the life of
   the solver; their values may switch between finite and infinite.
 

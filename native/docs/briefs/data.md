@@ -20,7 +20,7 @@ the shared headers in `native/include/cupiqp/` and `native/src/common/`, and you
   Allocate everything here; upload patterns plus the COO row index of every stored entry (`row_idx`).
 - `set_values` / `set_values_from_host`: stream-ordered copies, return the `UpdateMask`, reject a bound
   side absent at setup, refresh masks when a bound changed. No allocation, no sync.
-- `update_finite_masks`: port the Warp kernel (finite iff -1e20 < v < 1e20; layout [hl|hu|xl|xu];
+- `update_finite_masks`: port the Warp kernel (lower finite iff v > -1e20, upper finite iff v < 1e20; layout [hl|hu|xl|xu];
   active_G_row = max(fl, fu); active_x_bound; num_finite_bounds). Match the reference on NaN and on
   +-inf vs +-1e20 exactly.
 
