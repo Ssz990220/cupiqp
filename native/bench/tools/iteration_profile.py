@@ -41,6 +41,12 @@ def category(name: str) -> str:
         return "cuDSS factorization"
     if "cudss::" in name:
         return "cuDSS solve"
+    if "reduced_kkt" in name:
+        if any(k in name for k in ("weights_kernel", "assemble_kernel")):
+            return "reduced: assembly"
+        if "chol_" in name:
+            return "reduced: Cholesky"
+        return "reduced: solve"
     if any(k in name for k in ("cusparse", "mv_v3", "csrmv", "spmv_detail")):
         return "SpMV"
     if "kkt_kernels" in name or "update_kkt_diag" in name or "kkt_assembly" in name:

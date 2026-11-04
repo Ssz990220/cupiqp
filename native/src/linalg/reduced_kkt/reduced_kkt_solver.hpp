@@ -57,6 +57,8 @@ class ReducedKktSolver : public KktLinearSolver {
   int32_t n() const { return n_; }
   int32_t mm() const { return mm_; }
   int assembly_warps() const { return warps_; }
+  int32_t assembly_tasks() const { return num_tasks_; }
+  int32_t assembly_split_rows() const { return num_split_rows_; }
 
  private:
   int32_t n_ = 0, mm_ = 0;
@@ -64,8 +66,15 @@ class ReducedKktSolver : public KktLinearSolver {
   size_t assembly_smem_ = 0;
   const int32_t* Kidx_ = nullptr;
   double* K_ = nullptr;
-  CudaBuffer<int32_t> Pptr_, Pcol_, Pslot_, Dslot_, Kbase_, Mlen_, Cptr_, Crow_, Coff_;
-  CudaBuffer<double> w_, H_, dinv_, rhs_, sol_;
+  int32_t num_tasks_ = 0, num_split_rows_ = 0;
+  CudaBuffer<int32_t> Pptr_, Pcol_, Pslot_, Dslot_, Kbase_, Mlen_, Cptr_, Crow_, Coff_, Cslot_;
+  // Assembly tasks (row, CSC range, output) and the rows split over several.
+  CudaBuffer<int32_t> task_row_, task_e0_, task_e1_, srow_, stask0_, stask1_;
+  CudaBuffer<int64_t> task_out_;
+  // Compacted nonzeros of the rows of M (indexed by K slot) and prefix counts.
+  CudaBuffer<double> Cv_;
+  CudaBuffer<int32_t> Cc_, pre_;
+  CudaBuffer<double> w_, H_, dinv_, rhs_, sol_, ws_;
   CudaBuffer<int32_t> status_;
 };
 

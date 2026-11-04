@@ -31,43 +31,79 @@ __global__ void weights_kernel(const double* __restrict__ K, const int32_t* __re
   if (k < mm) w[k] = -1.0 / K[Dslot[k]];
 }
 
-// Block i computes row i of the lower triangle of
-//   H = (P + diag x_reg) + M^T diag(w) M,   M = [A; G] (rows n .. n+p+m-1 of K).
-// H_ij = (P + x_reg)_ij + sum_k w_k M_ki M_kj (j <= i). Warp v walks a
-// contiguous chunk of column i's row list (k ascending, CSC of M) into its own
-// shared accumulator. The lanes prefetch the metadata and w_k M_ki of 32 rows
-// at once; rows with w_k M_ki == 0 (explicit zeros, masked inactive rows) are
-// dropped by a warp ballot. Row k's off-diagonal entries are contiguous in K
-// (from Kbase[k]) with ascending columns, so the warp reads entries
-// Kbase[k] .. Kbase[k] + off (columns <= i) straight from K's CSR arrays, the
-// lanes splitting them (distinct columns), __syncwarp between rows. Final sum
-// in a fixed order: P, warp 0, ..., warp W-1.
+// Per factorization, compact the nonzero entries of every row k of M = [A; G]
+// (rows n .. n+p+m-1 of K; explicit zeros and the zeroed rows of inactive
+// constraints are dropped): row k's run starting at K slot Kbase[k] keeps its
+// place, Cv / Cc hold the nonzero values / columns in ascending column
+// order, and pre[Kbase[k] + q] = number of nonzeros among the first q + 1
+// stored entries. One warp per row, ballot prefix counts (deterministic).
+__global__ void compact_rows_kernel(const double* __restrict__ K, const int32_t* __restrict__ Kidx,
+                                    const int32_t* __restrict__ Kbase, const int32_t* __restrict__ Mlen, int mm,
+                                    double* __restrict__ Cv, int32_t* __restrict__ Cc, int32_t* __restrict__ pre) {
+  const int k = int((int64_t(blockIdx.x) * blockDim.x + threadIdx.x) / 32), lane = threadIdx.x % 32;
+  if (k >= mm) return;
+  const int kb = Kbase[k], len = Mlen[k];
+  int count = 0;
+  for (int q0 = 0; q0 < len; q0 += 32) {
+    const int q = q0 + lane;
+    const double v = q < len ? K[kb + q] : 0.0;
+    const bool nz = q < len && v != 0.0;
+    const unsigned bal = __ballot_sync(0xffffffffu, nz);
+    const int before = count + __popc(bal & ((1u << lane) - 1u));
+    if (nz) {
+      Cv[kb + before] = v;
+      Cc[kb + before] = Kidx[kb + q];
+    }
+    if (q < len) pre[kb + q] = before + (nz ? 1 : 0);
+    count += __popc(bal);
+  }
+}
+
+// One block per task. A task is (row i, a contiguous range [e0, e1) of
+// column i's CSC list of M); a heavy row is split over several tasks so that
+// the blocks get comparable work. The task computes, for j <= i,
+//   T_ij = sum_{e in range, k = Crow[e]} w_k M_ki M_kj   (+ (P + x_reg)_ij if first),
+// and writes it to row i of H (single-task rows) or to its workspace slot
+// (row i of a split row, summed by reduce_split_rows_kernel). Warp v walks a
+// contiguous chunk of the range into its own shared accumulator; the lanes
+// prefetch 32 entries' metadata and a = w_k M_ki at once, entries with a == 0
+// are dropped by a ballot, then the warp walks row k's compacted nonzeros
+// with columns <= i (pre gives their count), lanes splitting them (distinct
+// columns), __syncwarp between rows. Fixed final order: P, warp 0..W-1.
 template <int W>
 __global__ void __launch_bounds__(W * 32) assemble_kernel(
-    const double* __restrict__ K, const int32_t* __restrict__ Kidx, const double* __restrict__ w,
-    const int32_t* __restrict__ Pptr, const int32_t* __restrict__ Pcol, const int32_t* __restrict__ Pslot,
-    const int32_t* __restrict__ Kbase, const int32_t* __restrict__ Cptr, const int32_t* __restrict__ Crow,
-    const int32_t* __restrict__ Coff, int n, double* __restrict__ H) {
+    const double* __restrict__ K, const double* __restrict__ w, const int32_t* __restrict__ Pptr,
+    const int32_t* __restrict__ Pcol, const int32_t* __restrict__ Pslot, const int32_t* __restrict__ Kbase,
+    const int32_t* __restrict__ Crow, const int32_t* __restrict__ Coff, const double* __restrict__ Cv,
+    const int32_t* __restrict__ Cc, const int32_t* __restrict__ pre, const int32_t* __restrict__ task_row,
+    const int32_t* __restrict__ task_e0, const int32_t* __restrict__ task_e1,
+    const int64_t* __restrict__ task_out, int n, double* __restrict__ H, double* __restrict__ ws) {
   extern __shared__ double sh[];  // (W + 1) * n
-  const int i = blockIdx.x;
+  const int task = blockIdx.x, i = task_row[task];
+  // task_out < 0: single-task row, written to H directly (adds P); else
+  // (workspace offset << 1) | (0 for the row's first task, which adds P; 1 otherwise).
+  const int64_t out = task_out[task];
   const int tid = threadIdx.x;
-  for (int t = tid; t < (W + 1) * n; t += blockDim.x) sh[t] = 0.0;
+  for (int t = tid; t < (W + 1) * (i + 1); t += blockDim.x) sh[t % (i + 1) + (t / (i + 1)) * n] = 0.0;
   __syncthreads();
-  for (int e = Pptr[i] + tid; e < Pptr[i + 1]; e += blockDim.x) sh[W * n + Pcol[e]] = K[Pslot[e]];
+  const int e0 = task_e0[task], e1 = task_e1[task];
+  const bool add_P = out < 0 || (out & 1) == 0;
+  if (add_P)
+    for (int e = Pptr[i] + tid; e < Pptr[i + 1]; e += blockDim.x) sh[W * n + Pcol[e]] = K[Pslot[e]];
   const int warp = tid / 32, lane = tid % 32;
-  const int c0 = Cptr[i], len = Cptr[i + 1] - c0;
-  const int b0 = c0 + int(int64_t(len) * warp / W), b1 = c0 + int(int64_t(len) * (warp + 1) / W);
+  const int len = e1 - e0;
+  const int b0 = e0 + int(int64_t(len) * warp / W), b1 = e0 + int(int64_t(len) * (warp + 1) / W);
   double* acc = sh + warp * n;
   for (int base = b0; base < b1; base += 32) {
     const int e = base + lane;
     const bool ok = e < b1;
-    int kb = 0, off = -1;
+    int kb = 0, cnt = 0;
     double a = 0.0;
     if (ok) {
-      const int k = Crow[e];
-      off = Coff[e];
+      const int k = Crow[e], off = Coff[e];
       kb = Kbase[k];
       a = w[k] * K[kb + off];
+      cnt = pre[kb + off];
     }
     unsigned mask = __ballot_sync(0xffffffffu, ok && a != 0.0);
     while (mask) {
@@ -75,16 +111,31 @@ __global__ void __launch_bounds__(W * 32) assemble_kernel(
       mask &= mask - 1;
       const double as = __shfl_sync(0xffffffffu, a, src);
       const int kbs = __shfl_sync(0xffffffffu, kb, src);
-      const int offs = __shfl_sync(0xffffffffu, off, src);
-      for (int t = lane; t <= offs; t += 32) acc[Kidx[kbs + t]] += as * K[kbs + t];
+      const int cs = __shfl_sync(0xffffffffu, cnt, src);
+      for (int t = lane; t < cs; t += 32) acc[Cc[kbs + t]] += as * Cv[kbs + t];
       __syncwarp();
     }
   }
   __syncthreads();
+  double* dst = out < 0 ? nullptr : ws + (out >> 1);
   for (int j = tid; j <= i; j += blockDim.x) {
     double s = sh[W * n + j];
 #pragma unroll
     for (int v = 0; v < W; ++v) s += sh[v * n + j];
+    if (dst) dst[j] = s;
+    else H[size_t(j) * n + i] = s;
+  }
+}
+
+// Rows split over several tasks: H_ij = sum of the task partials in task
+// order (j <= i). One block per split row.
+__global__ void reduce_split_rows_kernel(const int32_t* __restrict__ srow, const int32_t* __restrict__ stask0,
+                                         const int32_t* __restrict__ stask1, const int64_t* __restrict__ task_out,
+                                         const double* __restrict__ ws, int n, double* __restrict__ H) {
+  const int r = blockIdx.x, i = srow[r], t0 = stask0[r], t1 = stask1[r];
+  for (int j = threadIdx.x; j <= i; j += blockDim.x) {
+    double s = 0.0;
+    for (int t = t0; t < t1; ++t) s += ws[(task_out[t] >> 1) + j];
     H[size_t(j) * n + i] = s;
   }
 }
@@ -210,33 +261,47 @@ __global__ void __launch_bounds__(kTile * kSub) chol_update_kernel(double* __res
   }
 }
 
-// x[i] = b[i] + sum_k M_ki w_k b[n + k]   (one warp per column i of M).
-__global__ void reduce_rhs_kernel(const double* __restrict__ K, const double* __restrict__ w,
-                                  const int32_t* __restrict__ Kbase, const int32_t* __restrict__ Cptr,
-                                  const int32_t* __restrict__ Crow, const int32_t* __restrict__ Coff,
-                                  const double* __restrict__ b, int n, double* __restrict__ x) {
-  const int i = (blockIdx.x * blockDim.x + threadIdx.x) / 32, lane = threadIdx.x % 32;
-  if (i >= n) return;
+// x[i] = b[i] + sum_k M_ki w_k b[n + k]: one block of RHS_BLOCK threads per
+// column i of M (Cslot: K slot of each CSC entry), thread-strided partial
+// sums, then warp shuffles and a fixed-order sum over the warps.
+constexpr int kRhsBlock = 128;
+__global__ void __launch_bounds__(kRhsBlock) reduce_rhs_kernel(
+    const double* __restrict__ K, const double* __restrict__ w, const int32_t* __restrict__ Cptr,
+    const int32_t* __restrict__ Crow, const int32_t* __restrict__ Cslot, const double* __restrict__ b, int n,
+    double* __restrict__ x) {
+  __shared__ double part[kRhsBlock / 32];
+  const int i = blockIdx.x, tid = threadIdx.x;
   double s = 0.0;
-  for (int e = Cptr[i] + lane; e < Cptr[i + 1]; e += 32) {
+  for (int e = Cptr[i] + tid; e < Cptr[i + 1]; e += kRhsBlock) {
     const int k = Crow[e];
-    s = fma(K[Kbase[k] + Coff[e]], w[k] * b[n + k], s);
+    s = fma(K[Cslot[e]], w[k] * b[n + k], s);
   }
   s = warp_sum(s);
-  if (lane == 0) x[i] = b[i] + s;
+  if (tid % 32 == 0) part[tid / 32] = s;
+  __syncthreads();
+  if (tid == 0) {
+    double t = b[i];
+    double sum = 0.0;
+#pragma unroll
+    for (int v = 0; v < kRhsBlock / 32; ++v) sum += part[v];
+    x[i] = t + sum;
+  }
 }
 
 // In place x <- L^-T L^-1 x (x of length n), one block, x staged in shared
-// memory. Per tile: one warp solves the 32 x 32 diagonal block (lane = row,
-// shuffles), then the whole block applies the panel to the remaining rows
-// (forward: thread per row, coalesced column reads; backward: warp per
-// column, coalesced reads of L's columns, fixed-order shuffle sums).
+// memory. Per 32-row tile: one warp solves the diagonal block (lane = row,
+// shuffles; the n-step substitution chain), then the whole block applies the
+// panel to the remaining entries with 4 threads per entry, each summing 8
+// panel columns, combined by a fixed shuffle butterfly (deterministic).
+// Forward reads columns of L (coalesced over rows); backward reads rows of
+// the tile (contiguous 8-entry runs of L's columns).
 template <int BLOCK>
 __global__ void __launch_bounds__(BLOCK) trsv_kernel(const double* __restrict__ L, const double* __restrict__ dinv,
                                                      int n, double* __restrict__ x) {
   extern __shared__ double xs[];  // n
+  constexpr int kPer = 4, kSeg = kTile / kPer, kItems = BLOCK / kPer;
   const int tid = threadIdx.x, lane = tid % 32, warp = tid / 32;
-  constexpr int kWarps = BLOCK / 32;
+  const int q = tid % kPer, item = tid / kPer;
   for (int i = tid; i < n; i += BLOCK) xs[i] = x[i];
   __syncthreads();
   const int N = (n + kTile - 1) / kTile;
@@ -244,25 +309,36 @@ __global__ void __launch_bounds__(BLOCK) trsv_kernel(const double* __restrict__ 
   for (int kk = 0; kk < N; ++kk) {
     const int g0 = kk * kTile, gi = g0 + lane;
     if (warp == 0) {
+      // z_c = L_cc y_c satisfies z_c = b_c - sum_{t<c} (L_ct / L_tt) z_t: the
+      // chain is one shuffle and one FMA per column; y = z / L_cc afterwards.
       double l[kTile];
 #pragma unroll
-      for (int c = 0; c < kTile; ++c) l[c] = (gi < n && c < lane) ? L[size_t(g0 + c) * n + gi] : 0.0;
-      double y = gi < n ? xs[gi] : 0.0;
-      const double di = gi < n ? dinv[gi] : 0.0;
+      for (int c = 0; c < kTile; ++c)
+        l[c] = (gi < n && c < lane) ? L[size_t(g0 + c) * n + gi] * dinv[g0 + c] : 0.0;
+      double z = gi < n ? xs[gi] : 0.0;
 #pragma unroll
-      for (int c = 0; c < kTile; ++c) {
-        if (lane == c) y *= di;
-        const double yc = __shfl_sync(0xffffffffu, y, c);
-        if (lane > c) y = fma(-l[c], yc, y);
+      for (int c = 0; c < kTile - 1; ++c) {
+        const double zc = __shfl_sync(0xffffffffu, z, c);
+        if (lane > c) z = fma(-l[c], zc, z);
       }
-      if (gi < n) xs[gi] = y;
+      if (gi < n) xs[gi] = z * dinv[gi];
     }
     __syncthreads();
-    const int cmax = min(kTile, n - g0);
-    for (int i = g0 + kTile + tid; i < n; i += BLOCK) {
+    const int c0 = g0 + q * kSeg;
+    double xv[kSeg];
+#pragma unroll
+    for (int c = 0; c < kSeg; ++c) xv[c] = c0 + c < n ? xs[c0 + c] : 0.0;
+    for (int base = g0 + kTile; base < n; base += kItems) {
+      const int i = base + item;
       double s = 0.0;
-      for (int c = 0; c < cmax; ++c) s = fma(L[size_t(g0 + c) * n + i], xs[g0 + c], s);
-      xs[i] -= s;
+      if (i < n) {
+#pragma unroll
+        for (int c = 0; c < kSeg; ++c)
+          if (c0 + c < n) s = fma(L[size_t(c0 + c) * n + i], xv[c], s);
+      }
+      s += __shfl_xor_sync(0xffffffffu, s, 1);
+      s += __shfl_xor_sync(0xffffffffu, s, 2);
+      if (q == 0 && i < n) xs[i] -= s;
     }
     __syncthreads();
   }
@@ -270,24 +346,35 @@ __global__ void __launch_bounds__(BLOCK) trsv_kernel(const double* __restrict__ 
   for (int kk = N - 1; kk >= 0; --kk) {
     const int g0 = kk * kTile, gi = g0 + lane;
     if (warp == 0) {
-      double l[kTile];  // l[c] = L(g0 + c, gi) for c > lane
+      // u_c = L_cc x_c satisfies u_c = y_c - sum_{t>c} (L_tc / L_tt) u_t.
+      double l[kTile];  // l[c] = L(g0 + c, gi) / L(g0 + c, g0 + c) for c > lane
 #pragma unroll
-      for (int c = 0; c < kTile; ++c) l[c] = (gi < n && c > lane && g0 + c < n) ? L[size_t(gi) * n + g0 + c] : 0.0;
-      double v = gi < n ? xs[gi] : 0.0;
-      const double di = gi < n ? dinv[gi] : 0.0;
+      for (int c = 0; c < kTile; ++c)
+        l[c] = (gi < n && c > lane && g0 + c < n) ? L[size_t(gi) * n + g0 + c] * dinv[g0 + c] : 0.0;
+      double u = gi < n ? xs[gi] : 0.0;
 #pragma unroll
-      for (int c = kTile - 1; c >= 0; --c) {
-        if (lane == c) v *= di;
-        const double vc = __shfl_sync(0xffffffffu, v, c);
-        if (lane < c) v = fma(-l[c], vc, v);
+      for (int c = kTile - 1; c > 0; --c) {
+        const double uc = __shfl_sync(0xffffffffu, u, c);
+        if (lane < c) u = fma(-l[c], uc, u);
       }
-      if (gi < n) xs[gi] = v;
+      if (gi < n) xs[gi] = u * dinv[gi];
     }
     __syncthreads();
-    for (int j = warp; j < g0; j += kWarps) {
-      const double t = gi < n ? L[size_t(j) * n + gi] * xs[gi] : 0.0;
-      const double s = warp_sum(t);
-      if (lane == 0) xs[j] -= s;
+    const int c0 = g0 + q * kSeg;
+    double xv[kSeg];
+#pragma unroll
+    for (int c = 0; c < kSeg; ++c) xv[c] = c0 + c < n ? xs[c0 + c] : 0.0;
+    for (int base = 0; base < g0; base += kItems) {
+      const int j = base + item;
+      double s = 0.0;
+      if (j < g0) {
+#pragma unroll
+        for (int c = 0; c < kSeg; ++c)
+          if (c0 + c < n) s = fma(L[size_t(j) * n + c0 + c], xv[c], s);
+      }
+      s += __shfl_xor_sync(0xffffffffu, s, 1);
+      s += __shfl_xor_sync(0xffffffffu, s, 2);
+      if (q == 0 && j < g0) xs[j] -= s;
     }
     __syncthreads();
   }

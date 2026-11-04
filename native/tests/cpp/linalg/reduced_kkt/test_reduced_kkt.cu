@@ -55,6 +55,7 @@ struct Case {
   double density = 0.1;
   double inactive_frac = 0.2;
   unsigned seed = 1;
+  int dense_cols = 0;  // columns of M stored (and nonzero) in every row
 };
 
 struct Problem {
@@ -93,6 +94,10 @@ struct Problem {
           M[size_t(k) * n + j] = u(g);
           Mnz[size_t(k) * n + j] = 1;
         }
+      for (int j = 0; j < c.dense_cols; ++j) {
+        M[size_t(k) * n + (n - 1 - j)] = u(g);
+        Mnz[size_t(k) * n + (n - 1 - j)] = 1;
+      }
       const int j = int(pr(g) * n) % n;
       if (!Mnz[size_t(k) * n + j]) {
         M[size_t(k) * n + j] = u(g);
@@ -333,6 +338,39 @@ TEST(ReducedKkt, EqualityOnlyAndBoxOnly) {
   check_case({65, 0, 0, 0.1, 0.0, 23});   // box-only QP: p = m = 0, H = P + x_reg
 }
 
+// Heavy columns (stored in every row of M, here the last columns) make the
+// assembly split their rows of H over several tasks; dense rows of M with
+// many explicit zeros exercise the compaction.
+TEST(ReducedKkt, HeavyColumnsAndExplicitZeros) {
+  for (const Case& c : {Case{120, 40, 3000, 0.05, 0.2, 25, 3}, Case{250, 60, 6000, 0.02, 0.1, 26, 2}}) {
+    check_case(c);
+    Problem pr(c);
+    Device dv(pr);
+    EXPECT_GT(dv.solver.assembly_split_rows(), 0);
+    EXPECT_GT(dv.solver.assembly_tasks(), pr.n);
+  }
+  Case z{90, 20, 400, 0.5, 0.2, 27};
+  Problem pr(z);
+  // Turn most stored entries of M into explicit zeros.
+  std::mt19937 g(5);
+  for (int e : pr.maps.G_slots)
+    if (g() % 4 != 0) pr.K[e] = 0.0;
+  for (int e : pr.maps.A_slots)
+    if (g() % 4 != 0) pr.K[e] = 0.0;
+  Device dv(pr);
+  dv.solver.assemble(dv.stream.get());
+  dv.sync();
+  auto Hg = down(dv.solver.H(), size_t(pr.n) * pr.n);
+  auto Hc = pr.H();
+  LD hmax = 0, hdiff = 0;
+  for (int i = 0; i < pr.n; ++i)
+    for (int j = 0; j <= i; ++j) {
+      hmax = std::max(hmax, std::fabs(Hc[size_t(i) * pr.n + j]));
+      hdiff = std::max(hdiff, std::fabs(Hc[size_t(i) * pr.n + j] - LD(Hg[size_t(j) * pr.n + i])));
+    }
+  EXPECT_LE(double(hdiff / hmax), 1e-14);
+}
+
 TEST(ReducedKkt, AllInequalitiesInactive) { check_case({40, 0, 60, 0.1, 1.0, 24}); }
 
 TEST(ReducedKkt, NonPositivePivotSetsFactorStatus) {
@@ -392,7 +430,7 @@ TEST(ReducedKkt, InitRejectsLargeN) {
 // whole-solve graph mode captures the factorization and the solves there)
 // reproduce the eager result bit for bit, with no allocation.
 TEST(ReducedKkt, CapturedInConditionalBodiesIsBitwiseEager) {
-  Problem pr({241, 30, 500, 0.03, 0.2, 61});
+  Problem pr({241, 30, 3000, 0.03, 0.2, 61, 2});  // split rows and compaction
   Device dv(pr);
   cudaStream_t s = dv.stream.get();
   auto b = random_rhs(pr.dim, 62);
