@@ -82,6 +82,18 @@ void bind_solver(nb::module_& m, nb::module_& testing) {
 #undef RW
       .def("verify", &Settings::verify);
 
+  nb::enum_<RowMatch>(m, "RowMatch")
+      .value("Identity", RowMatch::Identity)
+      .value("Keys", RowMatch::Keys);
+
+  nb::class_<WarmStartOptions> wo(m, "WarmStartOptions");
+  wo.def(nb::init<>())
+#define RW(x) .def_rw(#x, &WarmStartOptions::x)
+      RW(s_min) RW(z_min) RW(z_unmatched) RW(previous_y) RW(cold_if_not_solved) RW(snapshot_slots)
+      RW(snapshot_back) RW(row_match) RW(row_groups) RW(key_row_begin) RW(key_row_count)
+#undef RW
+      ;
+
   nb::class_<SparseSolver>(m, "NativeSparseSolver")
       .def(
           "__init__",
@@ -142,6 +154,29 @@ void bind_solver(nb::module_& m, nb::module_& testing) {
              s.solve_warm(fields, from_host);
            },
            nb::arg("fields") = static_cast<uint32_t>(kWarmAll), nb::arg("from_host") = false)
+      .def("set_warm_start",
+           [](SparseSolver& s, const WarmStartOptions& o) {
+             nb::gil_scoped_release release;
+             s.set_warm_start(o);
+           },
+           nb::arg("options"))
+      .def("row_key_buffers",
+           [](SparseSolver& s, bool host) {
+             RowKeyBuffers k = s.row_key_buffers(host);
+             nb::dict d;
+             d["keys"] = nb::make_tuple(reinterpret_cast<uintptr_t>(k.keys), static_cast<int64_t>(k.count));
+             d["groups"] = nb::make_tuple(reinterpret_cast<uintptr_t>(k.groups),
+                                          static_cast<int64_t>(k.groups ? k.count : 0));
+             return d;
+           },
+           nb::arg("host") = true)
+      .def("solve_warm_start",
+           [](SparseSolver& s, bool keys_from_host) {
+             nb::gil_scoped_release release;
+             s.solve_warm_start(keys_from_host);
+           },
+           nb::arg("keys_from_host") = true)
+      .def("reset_warm_start", &SparseSolver::reset_warm_start)
       .def("result_ptrs",
            [](const SparseSolver& s) {
              ResultView r = s.result();
