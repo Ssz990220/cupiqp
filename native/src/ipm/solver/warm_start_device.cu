@@ -6,6 +6,7 @@
 #include <cuda/std/tuple>
 
 #include <algorithm>
+#include <cstdlib>
 
 #include "common/check.hpp"
 #include "common/reduce.cuh"
@@ -26,6 +27,18 @@ struct WarmRowKeyDecomposer {
 
 __device__ __forceinline__ bool key_less(const WarmRowKey& a, int32_t g, int64_t k) {
   return a.group < g || (a.group == g && a.key < k);
+}
+
+// Copy the keys (and group ids) of the next QP from the pinned host staging,
+// read directly over the bus (mapped pinned memory, unified addressing). On
+// the test machine this is several times cheaper than a memcpy node for a
+// few kilobytes.
+__global__ void fetch_keys_kernel(const int64_t* host_keys, const int32_t* host_groups, int64_t* keys,
+                                  int32_t* groups, int32_t n) {
+  int32_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= n) return;
+  keys[i] = host_keys[i];
+  if (groups) groups[i] = host_groups[i];
 }
 
 __global__ void iota_kernel(int32_t* p, int32_t n) {
@@ -64,6 +77,27 @@ __global__ void match_kernel(const int64_t* keys, const int32_t* groups, const W
     else hi = mid;
   }
   match[i] = (lo < n && sorted[lo].key == k && sorted[lo].group == g) ? sorted_rows[lo] : -1;
+}
+
+// Fixed contiguous blocks of `gs` keyed rows: self first, else the lowest
+// row of the same block with an equal previous key, else -1.
+__global__ void match_block_kernel(const int64_t* keys, const WarmRowKey* prev, int32_t* match, int32_t n,
+                                   int32_t gs) {
+  int32_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= n) return;
+  const int64_t k = keys[i];
+  if (prev[i].key == k) {
+    match[i] = i;
+    return;
+  }
+  const int32_t g0 = (i / gs) * gs, g1 = min(g0 + gs, n);
+  int32_t m = -1;
+  for (int32_t j = g0; j < g1; ++j)
+    if (prev[j].key == k) {
+      m = j;
+      break;
+    }
+  match[i] = m;
 }
 
 __global__ void decide_kernel(const int32_t* prev_status, int32_t cold_if_not_solved, int32_t* cond) {
@@ -200,6 +234,8 @@ void WarmStartDevice::configure(const Dims& d, const WarmStartOptions& o, cudaSt
   CUPIQP_REQUIRE(o.snapshot_slots >= 0 && o.snapshot_back >= 0 && o.snapshot_back <= o.snapshot_slots,
                  "set_warm_start(): need 0 <= snapshot_back <= snapshot_slots.");
   int32_t begin = 0, count = 0;
+  CUPIQP_REQUIRE(o.key_group_size >= 0 && !(o.key_group_size > 0 && o.row_groups),
+                 "set_warm_start(): key_group_size must be >= 0 and cannot be combined with row_groups.");
   if (o.row_match == RowMatch::Keys) {
     begin = o.key_row_begin;
     count = o.key_row_count < 0 ? d.m - begin : o.key_row_count;
@@ -219,7 +255,7 @@ void WarmStartDevice::configure(const Dims& d, const WarmStartOptions& o, cudaSt
   // Keys: reallocate when the keyed range or the group flag changes.
   const bool groups = o.row_match == RowMatch::Keys && o.row_groups;
   if (first || count != key_count_ || groups != (groups_.size() > 0) ||
-      (o.row_match == RowMatch::Keys) != keyed()) {
+      (o.row_match == RowMatch::Keys) != keyed() || o.key_group_size != opt_.key_group_size) {
     keys_ = CudaBuffer<int64_t>(static_cast<size_t>(count));
     groups_ = CudaBuffer<int32_t>(groups ? static_cast<size_t>(count) : 0);
     keys_host_ = CudaPinnedBuffer<int64_t>(static_cast<size_t>(count));
@@ -235,10 +271,27 @@ void WarmStartDevice::configure(const Dims& d, const WarmStartOptions& o, cudaSt
     if (count) {
       for (int32_t i = 0; i < count; ++i) keys_host_.data()[i] = 0;
       for (size_t i = 0; i < groups_host_.size(); ++i) groups_host_.data()[i] = 0;
+      // Device addresses of the pinned staging (mapped pinned memory); null
+      // when the device cannot access it, then the copy is a memcpy node.
+      keys_host_dev_ = nullptr;
+      groups_host_dev_ = nullptr;
+      if (std::getenv("CUPIQP_WARM_KEYS_MEMCPY") == nullptr) {
+        int64_t* kd = nullptr;
+        int32_t* gd = nullptr;
+        if (cudaHostGetDevicePointer(reinterpret_cast<void**>(&kd), keys_host_.data(), 0) == cudaSuccess &&
+            (groups_host_.size() == 0 ||
+             cudaHostGetDevicePointer(reinterpret_cast<void**>(&gd), groups_host_.data(), 0) == cudaSuccess)) {
+          keys_host_dev_ = kd;
+          groups_host_dev_ = gd;
+        } else {
+          (void)cudaGetLastError();
+        }
+      }
       iota_kernel<<<grid_for(count, kBlock), kBlock, 0, s>>>(iota_.data(), count);
       CUPIQP_CUDA_CHECK_LAUNCH();
       size_t bytes = 0;
-      CUPIQP_CUDA_CHECK(cub::DeviceRadixSort::SortPairs(nullptr, bytes, prev_keys_.data(), sorted_keys_.data(),
+      if (o.key_group_size == 0)
+        CUPIQP_CUDA_CHECK(cub::DeviceRadixSort::SortPairs(nullptr, bytes, prev_keys_.data(), sorted_keys_.data(),
                                                         iota_.data(), sorted_rows_.data(), count,
                                                         WarmRowKeyDecomposer{}, s));
       sort_temp_ = CudaBuffer<unsigned char>(std::max<size_t>(bytes, 1));
@@ -271,6 +324,13 @@ RowKeyBuffers WarmStartDevice::key_buffers(bool host) {
 
 void WarmStartDevice::upload_keys(cudaStream_t s) {
   if (!key_count_) return;
+  if (keys_host_dev_) {
+    fetch_keys_kernel<<<grid_for(key_count_, kBlock), kBlock, 0, s>>>(
+        keys_host_dev_, groups_.size() ? groups_host_dev_ : nullptr, keys_.data(),
+        groups_.size() ? groups_.data() : nullptr, key_count_);
+    CUPIQP_CUDA_CHECK_LAUNCH();
+    return;
+  }
   CUPIQP_CUDA_CHECK(cudaMemcpyAsync(keys_.data(), keys_host_.data(), sizeof(int64_t) * key_count_,
                                     cudaMemcpyHostToDevice, s));
   if (groups_.size())
@@ -280,6 +340,12 @@ void WarmStartDevice::upload_keys(cudaStream_t s) {
 
 void WarmStartDevice::match_rows(cudaStream_t s) {
   if (!key_count_) return;
+  if (opt_.key_group_size > 0) {
+    match_block_kernel<<<grid_for(key_count_, kBlock), kBlock, 0, s>>>(keys_.data(), prev_keys_.data(), match_.data(),
+                                                                       key_count_, opt_.key_group_size);
+    CUPIQP_CUDA_CHECK_LAUNCH();
+    return;
+  }
   size_t bytes = sort_temp_bytes_;
   CUPIQP_CUDA_CHECK(cub::DeviceRadixSort::SortPairs(sort_temp_.data(), bytes, prev_keys_.data(), sorted_keys_.data(),
                                                     iota_.data(), sorted_rows_.data(), key_count_,

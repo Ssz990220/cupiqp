@@ -265,7 +265,8 @@ TEST(WarmStartDevice, ColdFallbackWhenPreviousNotSolved) {
 // the warm solve equals the warm solve of the unpermuted QP (up to rounding).
 TEST(WarmStartDevice, KeyMatchingFollowsRowPermutation) {
   const int n = 30, p = 5, m = 48;
-  for (bool groups : {false, true}) {
+  for (int gmode : {0, 1, 2}) {  // 0: global keys, 1: group ids, 2: fixed blocks of 8 rows
+    const bool groups = gmode == 1;
     for (bool host : {true, false}) {
       Qp q(n, p, m, 23);
       SparseSolver s;
@@ -273,6 +274,7 @@ TEST(WarmStartDevice, KeyMatchingFollowsRowPermutation) {
       WarmStartOptions o;
       o.row_match = RowMatch::Keys;
       o.row_groups = groups;
+      o.key_group_size = gmode == 2 ? 8 : 0;
       o.key_row_begin = 8;
       o.key_row_count = 32;  // rows 8..39 keyed, groups of 8
       s.set_warm_start(o);
@@ -296,7 +298,7 @@ TEST(WarmStartDevice, KeyMatchingFollowsRowPermutation) {
       std::vector<int32_t> g(32);
       for (int j = 0; j < 32; ++j) {
         g[j] = j / 8;
-        k0[j] = groups ? 100 + j % 8 : 100 + j;
+        k0[j] = gmode ? 100 + j % 8 : 100 + j;
       }
       write_keys(k0, g);
       s.solve_warm_start(host);
@@ -409,5 +411,9 @@ TEST(WarmStartDevice, RejectsBadCalls) {
   o.row_match = RowMatch::Keys;
   o.key_row_begin = 5;
   o.key_row_count = 6;
+  EXPECT_THROW(s.set_warm_start(o), Error);
+  o.key_row_count = 5;
+  o.row_groups = true;
+  o.key_group_size = 4;  // group ids and fixed blocks are exclusive
   EXPECT_THROW(s.set_warm_start(o), Error);
 }

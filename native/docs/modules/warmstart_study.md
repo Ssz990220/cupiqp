@@ -5,6 +5,9 @@ from `native-cuda-port` (a9f74da). GPU: RTX 4070 SUPER (sm_89), CUDA 13.
 Data: `native/bench/data/warmstart/cupiqp_warmstart_sequences_20261104/` (2 runs,
 37 + 64 QPs, 99 transitions k -> k+1; n = 241, p = 64, m = 6385).
 
+Phase 2 (the warm start built on the device, `solve_warm_start`) is at the
+end of this note.
+
 ## Summary
 
 - Warm starting works, and it works the way the user framed it: keep x = 0,
@@ -301,4 +304,414 @@ native/bench/warmstart/run_final.sh native/bench/results/warmstart-20261104/chai
 native/bench/warmstart/run_final.sh native/bench/results/warmstart-20261104/coldprev
 .venv/bin/python native/bench/warmstart/assumption.py --cold-dir native/bench/results/warmstart-20261104/chain --out native/bench/results/warmstart-20261104
 .venv/bin/python native/bench/warmstart/summarize.py --per-run native/bench/results/warmstart-20261104/chain/records.jsonl
+```
+
+---
+
+# Phase 2: the warm start built on the device (2026-11-04)
+
+Brief: `native/docs/briefs/warmstart_device.md`. Same branch, GPU, data and
+solver settings as phase 1 (eps_abs = eps_duality_gap_abs = 1e-6, relative
+tolerances 0, max_iter 250). Results: `native/bench/results/warmstart-device-20261104/`.
+
+## Summary
+
+- The phase-1 strategy now runs entirely on the GPU, inside the one CUDA
+  graph of the solve: `set_warm_start(options)` once, then
+  `solve_warm_start()` per QP. Every steady-state solve is one graph launch
+  with zero host syncs and zero captures (counted on every recorded solve of
+  the experiments and asserted in a C++ test, which also checks that no
+  memory is allocated).
+- Host-to-device traffic of the feature per QP: 0 bytes with identity
+  matching or device-side keys; 8 bytes per keyed row with host keys (6,016 B
+  for the 752-row collision block with fixed blocks of 16 rows; 9,024 B with
+  int32 group ids; 51,080 B if all 6,385 rows are keyed). The previous y and z
+  never leave the GPU.
+- It reproduces phase 1 exactly. Iterations are identical on 99 of 99
+  transitions for cold, identity matching, (sample, pair) keys and
+  raw-label keys: 10 / 10.0 / 25 (median / mean / max) with keys,
+  10 / 10.4 / 25 with identity, against 29 / 28.8 / 33 cold. Median solve time
+  goes from 12.02 ms to 4.13 ms (2.9x). Every solve is Solved and passes the
+  KKT check at 1e-6.
+- The default `solve()` is unchanged: the SHA-256 over x of all 101 cold
+  solves is identical to the HEAD build (b0bdc64) and to phase 1, and the
+  medians are the same within 0.01 ms in three alternating rounds.
+- The cost is small. The warm prelude is about 0.34 ms cheaper than the
+  cold one (no initial factorization). Matching with fixed blocks adds
+  under 5 us per solve, including the read of the host keys (within noise).
+  Group ids sorted with CUB add about 30 us, keying all rows about 70 us, and
+  the ring buffer 1-2 us per IPM iteration.
+- Robustness: corrupted matching never causes a failure, and it never costs
+  more than cold. With wrong keys on half of the collision rows (as
+  realized), the mean is 14.4-14.9 iterations; with every row unmatched it is
+  18.2 (max 26). Unmatched rows are worse than wrong rows, and identity
+  matching (10.4) beats any heavily corrupted key set.
+- Ring buffer (Gondzio-Grothey, causal): no gain. The mean is 9.93-10.06
+  against 10.00 for the end-of-solve iterate for every K in {4, 8, 12} and
+  every offset up to K/2. Going back the full K lowers the worst case
+  (25 -> 17 with K = 12) but raises the pick-run median from 10 to 13.
+- MPC: s_min = 0.1 and z_min = 1e-4 carry over. They are the best (or tied
+  best) of the 11 settings tried: 24 -> 10 iterations (mean 23.6 -> 10.1)
+  at eps 1e-6, and 24 -> 11 (24.6 -> 11.1) at eps 1e-8. Time drops from
+  7.75 to 3.26 ms (2.4x). 48 of 48 transitions are Solved with KKT at 1e-6.
+- Recommendation: ship `solve_warm_start` with the defaults (s_min 0.1,
+  z_min 1e-4, previous y, cold fallback on). Have TrajOpt key the collision
+  block by link-pair id with `key_group_size = 16` (one block per sample),
+  passed from pinned host memory. Use identity matching where no keys exist.
+  Leave the ring buffer off.
+
+## 1. Design and API
+
+Public C++ API (`native/include/cupiqp/cupiqp.hpp`); Python
+`SparseSolver.set_warm_start(**fields)`, `row_key_buffers(host)`,
+`solve_warm_start(keys_from_host)`, `reset_warm_start()`,
+`cupiqp_native.WarmStartOptions`, `cupiqp_native.RowMatch`.
+
+```cpp
+enum class RowMatch : int32_t { Identity = 0, Keys = 1 };
+struct WarmStartOptions {
+  double s_min = 0.1, z_min = 1e-4, z_unmatched = 1e-4;
+  bool previous_y = true, cold_if_not_solved = true;
+  int32_t snapshot_slots = 0, snapshot_back = 0;          // ring buffer (off)
+  RowMatch row_match = RowMatch::Identity;
+  bool row_groups = false;  int32_t key_group_size = 0;   // groups: ids or fixed blocks
+  int32_t key_row_begin = 0, key_row_count = -1;           // keyed inequality rows
+};
+struct RowKeyBuffers { int64_t* keys; int32_t* groups; int32_t count; };
+void SparseSolver::set_warm_start(const WarmStartOptions& = {});  // allocates; outside the solve
+RowKeyBuffers SparseSolver::row_key_buffers(bool host = true);    // pinned host or device staging
+void SparseSolver::solve_warm_start(bool keys_from_host = true);
+void SparseSolver::reset_warm_start();                           // next one is cold
+```
+
+Code: `native/src/ipm/solver/warm_start_device.{hpp,cu}` (class
+`WarmStartDevice`: buffers and kernels), wired into the solve in
+`native/src/ipm/solver/sparse_solver.cu` (`previous_solve_start`,
+`previous_start`, the `ring_store` call at the end of `run_one_iteration`,
+the `record_previous` call in `solve_finalize`).
+
+What runs inside the one solve graph:
+
+1. **Keys** (only with `RowMatch::Keys`). The first kernel reads the keys of the new QP
+   (and the group ids) from the pinned staging. It reads them over the bus
+   through the mapped device address of the pinned buffer
+   (`cudaHostGetDevicePointer`), so there is no memcpy node. On this machine a
+   6 KB `cudaMemcpyAsync` node in the graph cost about 50 us; the kernel read
+   costs a few us (measured below, switch `CUPIQP_WARM_KEYS_MEMCPY=1`). With
+   `keys_from_host = false` the device staging is used as is (0 bytes).
+2. **Row match** `match[i]`, the previous keyed row of keyed row i, or -1.
+   The row itself is preferred when its previous key is equal; otherwise:
+   - `key_group_size = g`: a linear search of its block of g rows (one
+     kernel; the brief's "linear search within a small group");
+   - `row_groups` (any group-id layout) or no groups: CUB
+     `DeviceRadixSort::SortPairs` of the previous (group, key) pairs (a
+     decomposer, group most significant, stable, so the lowest row wins among
+     duplicates), then a binary search per row;
+   - no keys: identity, no kernel.
+   The current keys then become the previous keys (one pack kernel).
+3. **Start.** Two graph variants, chosen on the host without a sync. The first
+   `solve_warm_start()` of a sequence (after `set_warm_start`,
+   `reset_warm_start`, `solve()` or `solve_warm()`) captures the default
+   initial guess. Later ones capture a 1-thread decision kernel that writes
+   `cold = (prev status != Solved)` and `warm = !cold` to the device, then two
+   conditional IF nodes (`capture_if`): the cold body is the default initial
+   guess, the warm body is one elementwise kernel (`build_start_kernel`) plus
+   mu and the proximal centers. The start kernel works directly in the
+   scaled coordinates of the new QP: x = 0; y = y_prev D^-1 c;
+   s = max(scaled bound, s_min D); z = max(z_prev[match], z_min) D^-1 c
+   (`z_unmatched` for match -1), with s = z = 0 on infinite bounds. Box bounds
+   use identity and delta_b. The slack at x = 0 is the scaled bound itself, so no
+   product G x is needed.
+4. **Ring buffer** (optional). With `snapshot_slots = K > 0`, one small kernel
+   at the end of each IPM iteration copies (y, z, s) of the current
+   iterate into slot `iter % (K + 1)` (the slot comes from the device iteration
+   counter, so one captured node serves all iterations).
+5. **Record.** In the finalization, before the solution is unscaled (still
+   in the scaling of this QP), one kernel picks the end-of-solve iterate or
+   iterate N - back (if N - back >= 1), unscales its y and z into the
+   previous-solve buffer (user coordinates; Ruiz scaling may change on the
+   next update) and keeps the final status for the next decision.
+
+All buffers are allocated in `set_warm_start()` (which syncs, invalidates
+the feature's graphs and makes the next solve cold). `solve()`, its graphs
+and `solve_prelude` for prev_mode 0 are untouched. The feature also works in
+`GraphMode::None` and `IterationGraphHostLoop`, where a conditional IF costs
+one host sync, as the loops there already do.
+
+Tests: `native/tests/cpp/ipm/solver/test_warm_start_device.cu` (7 tests, all
+three graph modes. The first solve is cold and bitwise equal to `solve()`,
+and `solve()` stays bitwise unchanged afterwards. On the increment form of a
+QP (x0 shifted out) the warm start needs at most 3 iterations, and on a
+perturbed one fewer than cold. A previous MaxIterReached gives a cold start
+bitwise equal to `solve()`. Key matching recovers a row permutation for
+global keys, group ids and fixed blocks, from host and device. There is one
+launch, no sync, no capture and no allocation in steady state. The ring buffer
+and the graph modes agree bitwise. Bad options are rejected),
+`native/tests/python/ipm/solver/test_warm_start_device.py` (3 tests). Full
+suite on `build/native-ws`: ctest 124/124 (3 disabled timing tests not run),
+native pytest 1090 passed, upstream `test_sparse_solver.py` 7 passed, 3 skipped.
+compute-sanitizer memcheck and initcheck report 0 errors for a keyed
+chain with the ring buffer in `GraphMode::None`. In graph modes the sanitizer
+cannot be used on this machine: it fails on every test that captures a
+conditional node, including the pre-existing `SpmvTest.InsideConditionalWhileBody`.
+
+## 2. Experiment 1: reproduction of phase 1 (`main/`)
+
+Chains over all QPs of each run, the first QP cold. Four passes per configuration,
+the first a warm-up; time is the per-QP median of the other three (CLOCK_MONOTONIC_RAW,
+launch to stream sync, keys already written to pinned memory). Aggregates
+over the 99 warm-started transitions.
+
+| config | iter med | iter mean | iter max | ms med | ms mean | ms max | speedup | fail | KKT pass | launches / syncs per solve |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| cold (`solve()`) | 29 | 28.80 | 33 | 12.02 | 11.98 | 13.62 | 1.00 | 0 | 99/99 | 1 / 0 |
+| identity matching | 10 | 10.39 | 25 | 4.13 | 4.30 | 10.18 | 2.91 | 0 | 99/99 | 1 / 0 |
+| **keys (sample, pair), fixed blocks of 16** | **10** | **10.00** | **25** | **4.13** | **4.15** | **10.18** | **2.91** | 0 | 99/99 | 1 / 0 |
+| keys (sample, pair), group ids + sort | 10 | 10.00 | 25 | 4.16 | 4.17 | 10.21 | 2.89 | 0 | 99/99 | 1 / 0 |
+| all rows keyed by (sample, pair) / label hash | 10 | 10.00 | 25 | 4.20 | 4.21 | 10.25 | 2.86 | 0 | 99/99 | 1 / 0 |
+| all rows keyed by raw-label hash | 10 | 12.64 | 25 | 4.20 | 5.29 | 10.25 | 2.86 | 0 | 99/99 | 1 / 0 |
+| identity, s_min = 1e-4 (naive clamp) | 13 | 13.54 | 37 | 5.33 | 5.56 | 15.02 | 2.25 | 0 | 99/99 | 1 / 0 |
+| keys (group ids), y = 0 | 10 | 10.42 | 25 | 4.16 | 4.33 | 10.21 | 2.89 | 0 | 99/99 | 1 / 0 |
+
+Per run (keys, fixed blocks): place 29 / 29.25 -> 8 / 8.53 / 17 iterations,
+12.02 -> 3.35 ms (3.6x); pick 29 / 28.54 -> 10 / 10.84 / 25, 12.07 -> 4.14 ms
+(2.9x). Max |x - x_cold| <= 3.7e-6 (solver tolerance) everywhere.
+
+Comparison with phase 1, per QP: the iteration counts of cold, identity
+(phase-1 `map=position`), (sample, pair) keys (`x0_duals`) and raw-label keys
+(`map=label`) are identical on 99 of 99 transitions. The naive clamp s_min =
+z_min = 1e-4 differs on 6 transitions of the pick run (k = 35-47, by 1-4
+iterations; mean 13.54 vs 13.4). The device kernel clamps in scaled
+coordinates, max(scaled bound, s_min D), whereas phase 1 clamped
+max(bound, s_min) in user coordinates and then scaled. The two agree up to
+rounding of the cumulative Ruiz factors, and with the tiny clamp the chain
+is sensitive enough for that rounding to change a few counts. Solve times are
+within 0.05 ms of phase 1 at the median. Phase 1 timed a 200 KB start upload
+and the default scaling, while phase 2 runs the start kernel and the
+matching; neither matters at this resolution.
+
+The fit of time against iterations per QP (`main/summary.md`) gives
+0.39-0.41 ms per IPM iteration in all modes and a fixed cost of 0.65 ms
+for cold against 0.05-0.06 ms for identity or block keys, 0.09 ms with group
+ids and 0.14-0.21 ms with all rows keyed.
+
+## 3. Experiment 2: matching methods
+
+The table above answers it. What matters is whether the keys find the
+right row, not how they are passed. Every scheme that finds the
+(sample, pair) row gives 10.00. Identity costs 0.39 iterations on average
+(10.39, pick run only: 11.46 vs 10.84). Raw labels, whose collision text contains the
+sample time, mismatch 29% of the collision rows (pick 40%) and cost 2.6
+iterations on average (pick run: 15.0 vs 10.8). Rows outside the collision
+block do not need keys; keying them (all 6,385 rows) changes nothing.
+Among the equivalent schemes, fixed blocks are cheapest: no group ids
+(6,016 B instead of 9,024 B per QP) and no sort.
+
+## 4. Experiment 3: robustness to bad matching (`robust/`)
+
+Keys (sample, pair) with group ids. On a fraction f of the collision rows of
+every QP after the first, the key is replaced by either:
+- a fresh key that no other QP uses (**unmatched**: the row starts at
+  `z_unmatched`), or
+- the committed key of another row of the same sample in the previous QP
+  (**mismatch**: the row takes the dual of a wrong row).
+
+There were 3 seeds per point, on both runs, for 297 warm solves per point.
+Because the keys of QP k are also the previous keys of QP k+1, a corrupted
+row also breaks the match of its successor. The realized fraction of
+collision rows whose device match differs from the (sample, pair) truth was
+measured by reading back the device match and is about 2f - f^2. At f = 100%
+mismatch, the copied keys often coincide with the true ones, so the
+realized rate falls to 43%.
+
+| corruption | nominal f | realized wrong | iter med | iter mean | iter max | fail | KKT pass |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| none (cold reference: 29 / 28.80 / 33) | 0% | 0.0% | 10 | 10.00 | 25 | 0 | 99/99 |
+| unmatched | 10% | 19.1% | 12 | 12.46 | 25 | 0 | 297/297 |
+| unmatched | 30% | 50.3% | 15 | 14.86 | 26 | 0 | 297/297 |
+| unmatched | 60% | 83.4% | 19 | 17.25 | 26 | 0 | 297/297 |
+| unmatched | 100% | 99.8% | 20 | 18.23 | 26 | 0 | 297/297 |
+| mismatch | 10% | 19.2% | 11 | 12.06 | 25 | 0 | 297/297 |
+| mismatch | 30% | 49.9% | 15 | 14.38 | 25 | 0 | 297/297 |
+| mismatch | 60% | 79.9% | 17 | 16.07 | 26 | 0 | 297/297 |
+| mismatch | 100% | 42.7% | 13 | 12.96 | 25 | 0 | 297/297 |
+
+Per run: place goes from 8.5 (clean) to 11.7 (all unmatched), and pick from 10.8
+to 22.0 (median 22, max 26). Curve:
+- Bad matching only costs speed: there are no failures, the KKT check passes
+  everywhere, and the worst case (26) stays under cold (33).
+- The cost rises steeply at first (+2.5 iterations at 19% realized) and then
+  saturates (18.2 at 100% unmatched). Almost all of it is on the pick run,
+  where the collision duals are active.
+- A wrong dual is slightly better than none: at the same realized rate,
+  mismatch is 0.4-1.2 iterations cheaper than unmatched. So
+  `z_unmatched = z_min = 1e-4` is a poor guess for the collision rows of this
+  problem, and identity, which takes the dual of whatever pair now sits in the slot,
+  beats losing the match: 10.39 against 18.23 with every row unmatched. If keys
+  are unreliable, use identity, not keys that miss.
+
+## 5. Experiment 4: ring-buffer snapshot (`ring/`)
+
+Keys (sample, pair) with group ids, s_min 0.1, z_min 1e-4, except where noted.
+"back b" means the next QP starts from iterate N - b of this solve (b = 0:
+the end-of-solve iterate, i.e. no change). Four passes.
+
+| K | back | iter med | iter mean | iter max | ms med | ms mean |
+|---:|---:|---:|---:|---:|---:|---:|
+| - | 0 (no ring) | 10 | 10.00 | 25 | 4.18 | 4.22 |
+| 4 | 0 | 10 | 10.00 | 25 | 4.20 | 4.23 |
+| 4 | 1 | 9 | 9.99 | 25 | 3.81 | 4.20 |
+| 4 | 2 | 9 | 10.06 | 26 | 3.80 | 4.23 |
+| 4 | 4 | 9 | 9.93 | 24 | 3.86 | 4.20 |
+| 8 | 1 | 9 | 9.99 | 25 | 3.81 | 4.20 |
+| 8 | 4 | 9 | 9.93 | 24 | 3.80 | 4.18 |
+| 8 | 8 | 10 | 10.41 | 24 | 4.21 | 4.39 |
+| 12 | 1 | 9 | 9.99 | 25 | 3.81 | 4.20 |
+| 12 | 6 | 9 | 10.04 | 25 | 3.81 | 4.22 |
+| 12 | 12 | 10 | 10.31 | 17 | 4.21 | 4.35 |
+| 8 | 8, s_min 1e-2, z_min 1e-8 (phase-1 gg clamps) | 10 | 10.31 | 26 | 4.20 | 4.35 |
+| 8 | 4, s_min 1e-2, z_min 1e-8 | 9 | 10.65 | 33 | 3.80 | 4.46 |
+
+All are Solved with KKT at 1e-6, 1 launch, 0 syncs. Verdict: no gain worth the
+feature. The mean is flat (9.93-10.06) for every K and offset up to K/2.
+The median drops from 10 to 9 only because the pooled distribution sits at
+the 9/10 boundary; per run, the medians are unchanged (8 and 10). Going back
+the full K helps the worst transition (max 25 -> 17 with K = 12) but
+costs on the converging tail (pick median 10 -> 13). The phase-1
+`gg_data back=8` result (mean 9.8, max 23) was not causal: it used an
+iterate of a cold re-solve of QP k. The causal snapshot of the warm solve is
+shorter (about 10 iterations), so N - 8 is nearly the start itself. The ring
+costs 1-2 us per IPM iteration (section 7), and `snapshot_back = 0`
+gives results bitwise equal to no ring (C++ test). Keep it off, and keep the
+code only as an experimental option.
+
+## 6. Experiment 5: MPC replay dataset (`mpc_eps1e-6/`, `mpc_eps1e-8/`)
+
+`native/bench/data/mpc` (n = 169, p = 64, m = 2521, one pattern):
+16 trajectories x 4 control steps, the steps 13-24 control periods apart.
+Each trajectory is a chain (its first QP cold, three warm), for 48
+transitions. Identity matching. P, A, C and bounds come from the bundle as
+the replay harness uses them (bounds clamped to +/-1e20). Four passes.
+
+| config (eps 1e-6) | iter med | iter mean | iter max | ms med | speedup | fail | KKT pass |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| cold | 24 | 23.58 | 27 | 7.75 | 1.00 | 0 | 48/48 |
+| **s_min 0.1, z_min 1e-4 (default)** | **10** | **10.06** | **13** | **3.26** | **2.38** | 0 | 48/48 |
+| s_min 1e-3 | 11 | 11.21 | 14 | 3.58 | 2.17 | 0 | 48/48 |
+| s_min 1e-2 | 10 | 10.58 | 13 | 3.33 | 2.33 | 0 | 48/48 |
+| s_min 1 | 12 | 12.06 | 18 | 3.89 | 1.99 | 0 | 48/48 |
+| z_min 1e-6 | 11 | 11.46 | 15 | 3.58 | 2.17 | 0 | 48/48 |
+| z_min 1e-2 | 11 | 11.00 | 15 | 3.57 | 2.17 | 0 | 48/48 |
+| s_min 1e-2, z_min 1e-2 | 12 | 11.85 | 16 | 3.90 | 1.99 | 0 | 48/48 |
+| s_min 1, z_min 1e-2 | 10 | 10.46 | 14 | 3.27 | 2.37 | 0 | 48/48 |
+| s_min 1e-4, z_min 1e-4 | 11 | 11.69 | 16 | 3.59 | 2.16 | 0 | 48/48 |
+| default, y = 0 | 10 | 10.06 | 13 | 3.26 | 2.38 | 0 | 48/48 |
+| default, ring K 8 back 8 | 10 | 9.98 | 13 | 3.27 | 2.37 | 0 | 48/48 |
+
+At eps 1e-8 (the replay harness tolerance) the ranking is the same: cold
+24 / 24.58 / 28, default 11 / 11.06 / 14, 8.07 -> 3.58 ms (2.26x); every
+other setting is equal or worse (`mpc_eps1e-8/summary.md`). The phase-1
+clamps carry over: they are the best setting on MPC as well, even though
+these QPs are far apart (13-24 control steps) and not SQP increments, and
+the plateau is the same shape (too small s_min or z_min costs 1-2
+iterations, s_min = 1 costs 2). y = 0 gives identical iterations here,
+because the 64 equality rows are almost all explicit zeros (880 of 920
+entries of A).
+
+## 7. Experiment 6: cost (`cost/`)
+
+`cost_device.py`, pick run QP 20 (QP 19 as the previous solve),
+compute_timings events for GPU time, medians of 300 solves.
+
+Fixed cost: max_iter = 1 (0 is rejected by the settings check), so a solve is
+prelude + one IPM iteration + finalization. cold_if_not_solved is off so
+that the warm branch is always taken.
+
+| solve (max_iter = 1) | GPU ms | wall ms | H2D bytes / solve (feature) | launches | syncs | captures |
+|---|---:|---:|---:|---:|---:|---:|
+| cold `solve()` | 0.845 | 0.866 | 0 | 1 | 0 | 0 |
+| warm, identity | 0.507 | 0.527 | 0 | 1 | 0 | 0 |
+| warm, keys in fixed blocks, host keys | 0.499 | 0.519 | 6,016 | 1 | 0 | 0 |
+| warm, keys in fixed blocks, device keys | 0.507 | 0.528 | 0 | 1 | 0 | 0 |
+| warm, keys + group ids (CUB sort), host | 0.537 | 0.557 | 9,024 | 1 | 0 | 0 |
+| warm, all 6,385 rows keyed (CUB sort), host | 0.579 | 0.599 | 51,080 | 1 | 0 | 0 |
+
+- The warm start is about 0.34 ms cheaper than the cold initial guess
+  (no initial factorization or KKT solve).
+- Fixed blocks: matching plus reading the host keys costs nothing
+  measurable (+-10 us run-to-run noise). The CUB sort of 752 (group, key)
+  pairs costs about 30 us, and of 6,385 keys about 70 us.
+- Host keys through a `cudaMemcpyAsync` node instead of the in-kernel read
+  (`CUPIQP_WARM_KEYS_MEMCPY=1`, `cost/cost_memcpy_node.txt`): +54 us for
+  6 KB, +47 us for 9 KB in two copies, +59 us for 51 KB. That latency, not
+  the bytes, is why the kernel reads the pinned buffer directly.
+- Ring buffer: full solves of the same QP from the same previous state with
+  K = 0 and K = 8 (both 11 iterations): +8 us GPU per solve, 0.7 us per IPM
+  iteration in the final run (1.0-2.3 us in earlier runs; at the noise level,
+  under 0.5% of a 0.4 ms iteration).
+- The record of the previous y and z and the start kernel are included in
+  the numbers above.
+- Host traffic not counted above: none. The previous y and z (and the status
+  and the decision flags) stay on the device. The only per-QP host traffic is
+  the optional keys.
+
+Kernel-level Nsight Systems traces could not be taken. With
+`--cuda-graph-trace=node`, the whole-solve graph aborts with an illegal
+address on this machine (nsys 2025.6.3, driver 13.3), also for the plain
+`solve()` of the unchanged default path. The same chains run clean without the
+profiler and under compute-sanitizer in `GraphMode::None`.
+
+## 8. Recommendation
+
+1. Use `solve_warm_start()` with the defaults for SQP sequences:
+   x = 0, previous y, slacks from the new bounds with s >= 0.1, previous z
+   with z >= 1e-4, cold start on the first QP and after a failed solve. On this
+   GPU: 12.0 -> 4.1 ms median per TrajOpt QP (2.9x), 7.75 -> 3.26 ms per MPC QP
+   (2.4x), with no new host syncs and no extra launches.
+2. TrajOpt should pass the collision block as keys:
+   `row_match = Keys, key_row_begin = 1569, key_row_count = 752,
+   key_group_size = 16`, key = link-pair id, written into
+   `row_key_buffers(true)` before each solve (6 KB per QP over the bus). If
+   the pair ids are already on the GPU, write the device staging instead (0 B).
+   Without keys, identity costs 0.4 iterations on average, about 0.15 ms.
+3. Do not key rows whose meaning never changes, and do not key by raw labels
+   that embed sample times. If keys can be wrong, identity is the safer
+   fallback: missed rows cost more than mismatched ones.
+4. Leave the ring buffer off; it adds no measurable gain on either dataset.
+
+## 9. Not done / limits
+
+- Kernel-level traces (see section 7); costs are differential wall and
+  CUDA-event times instead.
+- Batch size 1 only, like the solver.
+- `set_warm_start()` re-captures graphs and syncs; it is a setup call.
+- The host must not rewrite the pinned key staging until the solve that
+  reads it has completed (same contract as the pinned input buffers).
+- Times are from the RTX 4070 SUPER under WSL2; the memcpy-node latency in
+  particular may differ on native Linux and the producer's A1000.
+
+## Files (phase 2)
+
+- Code: `native/src/ipm/solver/warm_start_device.{hpp,cu}`,
+  `native/src/ipm/solver/sparse_solver.cu`, `native/include/cupiqp/cupiqp.hpp`,
+  `native/python/bindings/bind_solver.cpp`, `native/python/cupiqp_native/{__init__,_solver}.py`.
+- Tests: `native/tests/cpp/ipm/solver/test_warm_start_device.cu`,
+  `native/tests/python/ipm/solver/test_warm_start_device.py`.
+- Scripts: `native/bench/warmstart/run_device.py` (TrajOpt chains, matching
+  modes, corruption, ring), `run_device_all.sh` (stages main, robust, ring),
+  `run_mpc.py` + `mpc_common.py` + `run_mpc_all.sh` (MPC), `cost_device.py`,
+  `summarize_device.py`.
+- Results: `native/bench/results/warmstart-device-20261104/{main,robust,ring,mpc_eps1e-6,mpc_eps1e-8,cost,default_path}/`
+  (`records.jsonl` and `summary.md` per experiment; `default_path/cold_{base,hook}_N.json`
+  compare the HEAD build b0bdc64 ("base") with this branch ("hook"); `cold_final.json`
+  is the final build).
+
+Reproduce (repository root, after building `build/native-ws`):
+
+```bash
+native/bench/warmstart/run_device_all.sh all
+native/bench/warmstart/run_mpc_all.sh
+.venv/bin/python native/bench/warmstart/cost_device.py --out native/bench/results/warmstart-device-20261104/cost/cost.json
+.venv/bin/python native/bench/warmstart/summarize_device.py native/bench/results/warmstart-device-20261104/main/records.jsonl --per-run --fit
+.venv/bin/python native/bench/warmstart/summarize_device.py native/bench/results/warmstart-device-20261104/robust/records.jsonl --robust
 ```

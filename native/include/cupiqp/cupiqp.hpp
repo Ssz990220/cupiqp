@@ -271,8 +271,14 @@ struct WarmStartOptions {
   // the new QP matches the keyed row of the previous QP with the same key
   // (and the same group id when row_groups is true); a row that matches
   // itself is preferred, then the lowest previous row index.
+  // Groups, two ways: row_groups = true with one int32 group id per keyed row
+  // (any layout; matched with a device sort and binary search), or
+  // key_group_size = g > 0: the keyed rows form fixed blocks of g consecutive
+  // rows, the same in every QP (e.g. g collision slots per sample); a row is
+  // matched by a linear search of its block, no sort and no group ids.
   RowMatch row_match = RowMatch::Identity;
   bool row_groups = false;
+  int32_t key_group_size = 0;
   int32_t key_row_begin = 0;
   int32_t key_row_count = -1;
 };
@@ -362,10 +368,13 @@ class SparseSolver {
   // its result; every later one starts from the previous result as described
   // in WarmStartOptions, or cold when the previous solve did not report
   // Solved (cold_if_not_solved; decided on the device). With keys_from_host
-  // the keys are copied from the pinned staging inside the graph (8 bytes per
-  // keyed row, plus 4 with groups); otherwise the device staging is used as
-  // written on stream(). Changing the options re-captures the graphs and
-  // makes the next solve_warm_start() cold. solve() is not affected.
+  // the first kernel of the graph reads the keys from the pinned staging over
+  // the bus (mapped pinned memory; a memcpy node where the device cannot map
+  // it): 8 bytes per keyed row, plus 4 with group ids. Like the pinned input
+  // buffers, do not rewrite the staging until that solve has completed.
+  // Otherwise the device staging is used as written on stream(). Changing the
+  // options re-captures the graphs and makes the next solve_warm_start() cold.
+  // solve() is not affected.
   void set_warm_start(const WarmStartOptions& options = WarmStartOptions{});
   RowKeyBuffers row_key_buffers(bool host = true);
   void solve_warm_start(bool keys_from_host = true);

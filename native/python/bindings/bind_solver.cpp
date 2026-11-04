@@ -90,7 +90,7 @@ void bind_solver(nb::module_& m, nb::module_& testing) {
   wo.def(nb::init<>())
 #define RW(x) .def_rw(#x, &WarmStartOptions::x)
       RW(s_min) RW(z_min) RW(z_unmatched) RW(previous_y) RW(cold_if_not_solved) RW(snapshot_slots)
-      RW(snapshot_back) RW(row_match) RW(row_groups) RW(key_row_begin) RW(key_row_count)
+      RW(snapshot_back) RW(row_match) RW(row_groups) RW(key_group_size) RW(key_row_begin) RW(key_row_count)
 #undef RW
       ;
 

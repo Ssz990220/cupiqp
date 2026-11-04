@@ -14,7 +14,8 @@ Config spec: name[:key=val,...]
       K=..,back=..,corrupt=unmatched|mismatch,frac=..,seed=..]
 match:
   identity      RowMatch.Identity
-  pair          keys on the collision block only: group = sample index, key = pair id
+  pair          keys on the collision block only: group id = sample index, key = pair id
+  pair_block    the same keys, groups as fixed blocks of 16 rows (key_group_size, no group ids)
   pair_global   every row keyed (hash of the phase-1 (sample, pair) / label key), no groups
   label         every row keyed by a hash of its raw label (phase-1 map=label)
 
@@ -81,7 +82,7 @@ class KeyPlan:
         self.keys, self.groups = [], []
         if mode == "identity":
             return
-        if mode == "pair":
+        if mode in ("pair", "pair_block"):
             rng = np.random.default_rng(seed)
             for k in range(N):
                 key = pairs[k].copy()
@@ -94,9 +95,11 @@ class KeyPlan:
                             g0 = (i // GROUP) * GROUP
                             cand = [j for j in range(g0, g0 + GROUP)
                                     if self.keys[k - 1][j] != key[i] and j != self.truth[k][i]]
+                            if not cand:  # every other committed key equals this one (heavy corruption)
+                                cand = [j for j in range(g0, g0 + GROUP) if j != self.truth[k][i]]
                             key[i] = self.keys[k - 1][rng.choice(cand)]
                 self.keys.append(key)
-                self.groups.append(sample.astype(np.int32))
+                self.groups.append(sample.astype(np.int32) if mode == "pair" else None)
             return
         for q in qps:
             ks = row_keys(list(q["labels"]), "pair" if mode == "pair_global" else "label")
@@ -109,6 +112,9 @@ class KeyPlan:
         if self.mode == "pair":
             return dict(row_match=cn.RowMatch.Keys, row_groups=True, key_row_begin=self.first,
                         key_row_count=self.count)
+        if self.mode == "pair_block":
+            return dict(row_match=cn.RowMatch.Keys, row_groups=False, key_group_size=GROUP,
+                        key_row_begin=self.first, key_row_count=self.count)
         return dict(row_match=cn.RowMatch.Keys, row_groups=False, key_row_begin=0, key_row_count=-1)
 
     def realized(self, k, match):
@@ -117,7 +123,7 @@ class KeyPlan:
         if k == 0 or match is None:
             return None
         t = self.truth[k]
-        if self.mode == "pair":
+        if self.mode in ("pair", "pair_block"):
             m = match
         else:  # whole-m keys: restrict to the collision block, shift indices
             m = match[self.first:self.first + self.count]

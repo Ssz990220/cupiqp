@@ -89,6 +89,8 @@ class WarmStartDevice {
   CudaBuffer<int32_t> groups_;
   CudaPinnedBuffer<int64_t> keys_host_;
   CudaPinnedBuffer<int32_t> groups_host_;
+  int64_t* keys_host_dev_ = nullptr;  // device view of keys_host_ (mapped pinned memory)
+  int32_t* groups_host_dev_ = nullptr;
   CudaBuffer<WarmRowKey> prev_keys_, sorted_keys_;
   CudaBuffer<int32_t> iota_, sorted_rows_, match_;
   CudaBuffer<unsigned char> sort_temp_;
