@@ -70,6 +70,8 @@ __global__ void compact_rows_kernel(const double* __restrict__ K, const int32_t*
 // are dropped by a ballot, then the warp walks row k's compacted nonzeros
 // with columns <= i (pre gives their count), lanes splitting them (distinct
 // columns), __syncwarp between rows. Fixed final order: P, warp 0..W-1.
+// Side output for the solves: Ca[e] = w_k M_ki for every CSC entry e (the
+// tasks partition the CSC entries, so every entry is written once).
 template <int W>
 __global__ void __launch_bounds__(W * 32) assemble_kernel(
     const double* __restrict__ K, const double* __restrict__ w, const int32_t* __restrict__ Pptr,
@@ -77,7 +79,8 @@ __global__ void __launch_bounds__(W * 32) assemble_kernel(
     const int32_t* __restrict__ Crow, const int32_t* __restrict__ Coff, const double* __restrict__ Cv,
     const int32_t* __restrict__ Cc, const int32_t* __restrict__ pre, const int32_t* __restrict__ task_row,
     const int32_t* __restrict__ task_e0, const int32_t* __restrict__ task_e1,
-    const int64_t* __restrict__ task_out, int n, double* __restrict__ H, double* __restrict__ ws) {
+    const int64_t* __restrict__ task_out, int n, double* __restrict__ H, double* __restrict__ ws,
+    double* __restrict__ Ca) {
   extern __shared__ double sh[];  // (W + 1) * n
   const int task = blockIdx.x, i = task_row[task];
   // task_out < 0: single-task row, written to H directly (adds P); else
@@ -104,16 +107,48 @@ __global__ void __launch_bounds__(W * 32) assemble_kernel(
       kb = Kbase[k];
       a = w[k] * K[kb + off];
       cnt = pre[kb + off];
+      Ca[e] = a;
     }
     unsigned mask = __ballot_sync(0xffffffffu, ok && a != 0.0);
-    while (mask) {
-      const int src = __ffs(mask) - 1;
-      mask &= mask - 1;
-      const double as = __shfl_sync(0xffffffffu, a, src);
-      const int kbs = __shfl_sync(0xffffffffu, kb, src);
-      const int cs = __shfl_sync(0xffffffffu, cnt, src);
-      for (int t = lane; t < cs; t += 32) acc[Cc[kbs + t]] += as * Cv[kbs + t];
+    if (!mask) continue;
+    // Software pipelined over the selected entries: the first 32 compacted
+    // nonzeros of the next row are loaded before the current row's shared
+    // accumulator update, so the gather latency overlaps it. Same products
+    // and the same order of += per accumulator as the plain loop.
+    int src = __ffs(mask) - 1;
+    mask &= mask - 1;
+    double as = __shfl_sync(0xffffffffu, a, src);
+    int kbs = __shfl_sync(0xffffffffu, kb, src), cs = __shfl_sync(0xffffffffu, cnt, src);
+    int c0 = 0;
+    double v0 = 0.0;
+    if (lane < cs) {
+      c0 = Cc[kbs + lane];
+      v0 = Cv[kbs + lane];
+    }
+    while (true) {
+      const bool more = mask != 0;
+      double asn = 0.0, v1 = 0.0;
+      int kbn = 0, csn = 0, c1 = 0;
+      if (more) {
+        src = __ffs(mask) - 1;
+        mask &= mask - 1;
+        asn = __shfl_sync(0xffffffffu, a, src);
+        kbn = __shfl_sync(0xffffffffu, kb, src);
+        csn = __shfl_sync(0xffffffffu, cnt, src);
+        if (lane < csn) {
+          c1 = Cc[kbn + lane];
+          v1 = Cv[kbn + lane];
+        }
+      }
+      if (lane < cs) acc[c0] += as * v0;
+      for (int t = lane + 32; t < cs; t += 32) acc[Cc[kbs + t]] += as * Cv[kbs + t];
       __syncwarp();
+      if (!more) break;
+      as = asn;
+      kbs = kbn;
+      cs = csn;
+      c0 = c1;
+      v0 = v1;
     }
   }
   __syncthreads();
@@ -140,43 +175,44 @@ __global__ void reduce_split_rows_kernel(const int32_t* __restrict__ srow, const
   }
 }
 
-// 1 / sqrt(d): float seed refined by two Newton steps in FP64 (a few FP64
-// instructions instead of the long FP64 sqrt + division sequences, which
-// dominate the diagonal tile on GPUs with reduced FP64 rate). Outside the
-// float range the exact expression is used. Deterministic.
-__device__ __forceinline__ double rsqrt_refined(double d) {
-  if (d > 1e-36 && d < 1e36) {
-    double y = double(rsqrtf(float(d)));
-    y = fma(y, fma(-0.5 * d * y, y, 0.5), y);
-    y = fma(y, fma(-0.5 * d * y, y, 0.5), y);
-    return y;
-  }
-  return 1.0 / sqrt(d);
-}
-
 // Right-looking Cholesky of one 32 x 32 diagonal tile held by a warp, lane i
 // owning row i in registers (a[t] = H_it for t <= i; rows past n are identity
 // rows). On return a[t] = L_it (t <= i), inv = 1 / L_ii, and fail is the first
 // global column + 1 with a non-positive or non-finite pivot (0 = none).
+// 1 / sqrt is CUDA's double rsqrt (a hardware seed and FP64 refinement: on
+// this class of GPU about half the latency of the float-seed Newton
+// iterations it replaces, and at most 2 ulp). The pivot chain is software
+// pipelined: step j first updates column j + 1, takes the next pivot and
+// starts its rsqrt, and only then applies the remaining columns of the
+// rank-1 update, so the rsqrt latency overlaps independent FMAs. Same
+// operations and order per entry as the plain loop; only the issue order
+// changes.
 __device__ __forceinline__ void factor_diag_tile(double (&a)[kTile], int lane, int g0, int n, double& inv,
                                                  int& fail) {
   fail = 0;
   inv = 1.0;
+  double d = __shfl_sync(0xffffffffu, a[0], 0);
+  double r = rsqrt(d);
 #pragma unroll
   for (int j = 0; j < kTile; ++j) {
-    const double d = __shfl_sync(0xffffffffu, a[j], j);
     if (fail == 0 && g0 + j < n && !(d > 0.0 && d <= 1.7976931348623157e308)) fail = g0 + j + 1;
-    const double r = rsqrt_refined(d);
     if (lane == j) {
       a[j] = d * r;
       inv = r;
     } else if (lane > j) {
       a[j] *= r;
     }
+    if (j + 1 < kTile) {
+      const double l1 = __shfl_sync(0xffffffffu, a[j], j + 1);
+      if (lane >= j + 1) a[j + 1] = fma(-a[j], l1, a[j + 1]);
+      d = __shfl_sync(0xffffffffu, a[j + 1], j + 1);
+      const double rn = rsqrt(d);
 #pragma unroll
-    for (int t = j + 1; t < kTile; ++t) {
-      const double ltj = __shfl_sync(0xffffffffu, a[j], t);
-      if (lane >= t) a[t] = fma(-a[j], ltj, a[t]);
+      for (int t = j + 2; t < kTile; ++t) {
+        const double ltj = __shfl_sync(0xffffffffu, a[j], t);
+        if (lane >= t) a[t] = fma(-a[j], ltj, a[t]);
+      }
+      r = rn;
     }
   }
 }
@@ -261,20 +297,23 @@ __global__ void __launch_bounds__(kTile * kSub) chol_update_kernel(double* __res
   }
 }
 
-// x[i] = b[i] + sum_k M_ki w_k b[n + k]: one block of RHS_BLOCK threads per
-// column i of M (Cslot: K slot of each CSC entry), thread-strided partial
-// sums, then warp shuffles and a fixed-order sum over the warps.
+// x[i] = b[i] + sum_k (w_k M_ki) b[n + k]: one block of RHS_BLOCK threads per
+// column i of M, over the weighted CSC values Ca written by the assembly
+// (entries with Ca == 0, i.e. explicit zeros and inactive rows, skip the
+// gather of b), thread-strided partial sums, then warp shuffles and a
+// fixed-order sum over the warps.
 constexpr int kRhsBlock = 128;
-__global__ void __launch_bounds__(kRhsBlock) reduce_rhs_kernel(
-    const double* __restrict__ K, const double* __restrict__ w, const int32_t* __restrict__ Cptr,
-    const int32_t* __restrict__ Crow, const int32_t* __restrict__ Cslot, const double* __restrict__ b, int n,
-    double* __restrict__ x) {
+__global__ void __launch_bounds__(kRhsBlock) reduce_rhs_kernel(const double* __restrict__ Ca,
+                                                               const int32_t* __restrict__ Cptr,
+                                                               const int32_t* __restrict__ Crow,
+                                                               const double* __restrict__ b, int n,
+                                                               double* __restrict__ x) {
   __shared__ double part[kRhsBlock / 32];
   const int i = blockIdx.x, tid = threadIdx.x;
   double s = 0.0;
   for (int e = Cptr[i] + tid; e < Cptr[i + 1]; e += kRhsBlock) {
-    const int k = Crow[e];
-    s = fma(K[Cslot[e]], w[k] * b[n + k], s);
+    const double a = Ca[e];
+    if (a != 0.0) s = fma(a, b[n + Crow[e]], s);
   }
   s = warp_sum(s);
   if (tid % 32 == 0) part[tid / 32] = s;
@@ -288,109 +327,137 @@ __global__ void __launch_bounds__(kRhsBlock) reduce_rhs_kernel(
   }
 }
 
-// In place x <- L^-T L^-1 x (x of length n), one block, x staged in shared
-// memory. Per 32-row tile: one warp solves the diagonal block (lane = row,
-// shuffles; the n-step substitution chain), then the whole block applies the
-// panel to the remaining entries with 4 threads per entry, each summing 8
-// panel columns, combined by a fixed shuffle butterfly (deterministic).
-// Forward reads columns of L (coalesced over rows); backward reads rows of
-// the tile (contiguous 8-entry runs of L's columns).
-template <int BLOCK>
-__global__ void __launch_bounds__(BLOCK) trsv_kernel(const double* __restrict__ L, const double* __restrict__ dinv,
-                                                     int n, double* __restrict__ x) {
-  extern __shared__ double xs[];  // n
-  constexpr int kPer = 4, kSeg = kTile / kPer, kItems = BLOCK / kPer;
-  const int tid = threadIdx.x, lane = tid % 32, warp = tid / 32;
-  const int q = tid % kPer, item = tid / kPer;
-  for (int i = tid; i < n; i += BLOCK) xs[i] = x[i];
-  __syncthreads();
-  const int N = (n + kTile - 1) / kTile;
-  // Forward: L y = b.
-  for (int kk = 0; kk < N; ++kk) {
-    const int g0 = kk * kTile, gi = g0 + lane;
-    if (warp == 0) {
-      // z_c = L_cc y_c satisfies z_c = b_c - sum_{t<c} (L_ct / L_tt) z_t: the
-      // chain is one shuffle and one FMA per column; y = z / L_cc afterwards.
-      double l[kTile];
-#pragma unroll
-      for (int c = 0; c < kTile; ++c)
-        l[c] = (gi < n && c < lane) ? L[size_t(g0 + c) * n + gi] * dinv[g0 + c] : 0.0;
-      double z = gi < n ? xs[gi] : 0.0;
-#pragma unroll
-      for (int c = 0; c < kTile - 1; ++c) {
-        const double zc = __shfl_sync(0xffffffffu, z, c);
-        if (lane > c) z = fma(-l[c], zc, z);
-      }
-      if (gi < n) xs[gi] = z * dinv[gi];
+// Inter-block flags of the multi-block triangular solve: release / acquire
+// at GPU scope (the data a flag publishes is read with __ldcg, bypassing L1).
+__device__ __forceinline__ uint32_t ld_acquire_gpu(const uint32_t* p) {
+  uint32_t v;
+  asm volatile("ld.acquire.gpu.global.u32 %0, [%1];" : "=r"(v) : "l"(p) : "memory");
+  return v;
+}
+__device__ __forceinline__ void st_release_gpu(uint32_t* p, uint32_t v) {
+  asm volatile("st.release.gpu.global.u32 [%0], %1;" ::"l"(p), "r"(v) : "memory");
+}
+// Warp-wide wait until *f == epoch (lane 0 polls).
+__device__ __forceinline__ void warp_wait_flag(const uint32_t* f, uint32_t epoch, int lane) {
+  if (lane == 0)
+    while (ld_acquire_gpu(f) != epoch) {
     }
-    __syncthreads();
-    const int c0 = g0 + q * kSeg;
-    double xv[kSeg];
-#pragma unroll
-    for (int c = 0; c < kSeg; ++c) xv[c] = c0 + c < n ? xs[c0 + c] : 0.0;
-    for (int base = g0 + kTile; base < n; base += kItems) {
-      const int i = base + item;
-      double s = 0.0;
-      if (i < n) {
-#pragma unroll
-        for (int c = 0; c < kSeg; ++c)
-          if (c0 + c < n) s = fma(L[size_t(c0 + c) * n + i], xv[c], s);
-      }
-      s += __shfl_xor_sync(0xffffffffu, s, 1);
-      s += __shfl_xor_sync(0xffffffffu, s, 2);
-      if (q == 0 && i < n) xs[i] -= s;
-    }
-    __syncthreads();
-  }
-  // Backward: L^T x = y.
-  for (int kk = N - 1; kk >= 0; --kk) {
-    const int g0 = kk * kTile, gi = g0 + lane;
-    if (warp == 0) {
-      // u_c = L_cc x_c satisfies u_c = y_c - sum_{t>c} (L_tc / L_tt) u_t.
-      double l[kTile];  // l[c] = L(g0 + c, gi) / L(g0 + c, g0 + c) for c > lane
-#pragma unroll
-      for (int c = 0; c < kTile; ++c)
-        l[c] = (gi < n && c > lane && g0 + c < n) ? L[size_t(gi) * n + g0 + c] * dinv[g0 + c] : 0.0;
-      double u = gi < n ? xs[gi] : 0.0;
-#pragma unroll
-      for (int c = kTile - 1; c > 0; --c) {
-        const double uc = __shfl_sync(0xffffffffu, u, c);
-        if (lane < c) u = fma(-l[c], uc, u);
-      }
-      if (gi < n) xs[gi] = u * dinv[gi];
-    }
-    __syncthreads();
-    const int c0 = g0 + q * kSeg;
-    double xv[kSeg];
-#pragma unroll
-    for (int c = 0; c < kSeg; ++c) xv[c] = c0 + c < n ? xs[c0 + c] : 0.0;
-    for (int base = 0; base < g0; base += kItems) {
-      const int j = base + item;
-      double s = 0.0;
-      if (j < g0) {
-#pragma unroll
-        for (int c = 0; c < kSeg; ++c)
-          if (c0 + c < n) s = fma(L[size_t(j) * n + c0 + c], xv[c], s);
-      }
-      s += __shfl_xor_sync(0xffffffffu, s, 1);
-      s += __shfl_xor_sync(0xffffffffu, s, 2);
-      if (q == 0 && j < g0) xs[j] -= s;
-    }
-    __syncthreads();
-  }
-  for (int i = tid; i < n; i += BLOCK) x[i] = xs[i];
+  __syncwarp();
 }
 
-// x[n + k] = w_k (M_k dx - b[n + k])   (one warp per row k of M).
-__global__ void recover_kernel(const double* __restrict__ K, const int32_t* __restrict__ Kidx,
-                               const double* __restrict__ w, const int32_t* __restrict__ Kbase,
-                               const int32_t* __restrict__ Mlen, const double* __restrict__ b, int n, int mm,
-                               double* __restrict__ x) {
+// In place x <- L^-T L^-1 x (x of length n) as a dataflow over 32-row tiles,
+// one warp per block and 2N blocks (N = ceil(n / 32)): tasks 0 .. N-1 are the
+// forward tiles 0 .. N-1, tasks N .. 2N-1 the backward tiles N-1 .. 0. A
+// block takes its task from a ticket counter (atomicAdd), so every task it
+// waits for belongs to a block that is already running (no deadlock whatever
+// the residency or block order); the ticket also gives the epoch, so the
+// flags never need resetting (flag value = epoch when the tile is published).
+// Forward tile b: z = b_b - sum_{t<b} L_bt y_t (tiles taken in ascending t as
+// their flags appear, the tile of L prefetched before the wait; lane = row,
+// 4 interleaved accumulators), then the diagonal substitution in the scaled,
+// division-free form z_c = b_c - sum_{t<c} (L_ct / L_tt) z_t (one shuffle +
+// one FMA per column), y = z / L_cc. Backward tile b: same with L^T (lane =
+// column of L, t descending). Fixed summation order: deterministic. Every
+// value written to x is published by its tile's flag; x is updated in place
+// (a forward tile is only overwritten by its backward task, which starts
+// after every forward task has consumed it).
+__global__ void __launch_bounds__(32) trsv_flow_kernel(const double* __restrict__ L, const double* __restrict__ dinv,
+                                                       int n, double* __restrict__ x,
+                                                       unsigned long long* __restrict__ ticket,
+                                                       uint32_t* __restrict__ flags) {
+  const int lane = threadIdx.x, N = (n + kTile - 1) / kTile;
+  unsigned long long tk = 0;
+  if (lane == 0) tk = atomicAdd(ticket, 1ull);
+  tk = __shfl_sync(0xffffffffu, tk, 0);
+  const int task = int(tk % (unsigned long long)(2 * N));
+  const uint32_t epoch = uint32_t(tk / (unsigned long long)(2 * N)) + 1u;
+  const bool fwd = task < N;
+  const int b = fwd ? task : 2 * N - 1 - task, b0 = b * kTile, gi = b0 + lane;
+  const bool in = gi < n;
+  // Scaled diagonal tile: forward l[c] = L(gi, b0 + c) / L(b0 + c, b0 + c) for
+  // c < lane; backward l[c] = L(b0 + c, gi) / L(b0 + c, b0 + c) for c > lane.
+  double l[kTile];
+#pragma unroll
+  for (int c = 0; c < kTile; ++c) {
+    const int gc = b0 + c;
+    l[c] = 0.0;
+    if (fwd) {
+      if (in && c < lane) l[c] = L[size_t(gc) * n + gi] * dinv[gc];
+    } else {
+      if (in && c > lane && gc < n) l[c] = L[size_t(gi) * n + gc] * dinv[gc];
+    }
+  }
+  const double di = in ? dinv[gi] : 0.0;
+  double a0 = 0.0, a1 = 0.0, a2 = 0.0, a3 = 0.0, r = 0.0;
+  if (fwd) {
+    r = in ? __ldcg(x + gi) : 0.0;
+    for (int t = 0; t < b; ++t) {
+      const int t0 = t * kTile;
+      double Lr[kTile];
+#pragma unroll
+      for (int c = 0; c < kTile; ++c) Lr[c] = in ? L[size_t(t0 + c) * n + gi] : 0.0;
+      warp_wait_flag(flags + t, epoch, lane);
+      const double xv = __ldcg(x + t0 + lane);
+#pragma unroll
+      for (int c = 0; c < kTile; c += 4) {
+        a0 = fma(Lr[c], __shfl_sync(0xffffffffu, xv, c), a0);
+        a1 = fma(Lr[c + 1], __shfl_sync(0xffffffffu, xv, c + 1), a1);
+        a2 = fma(Lr[c + 2], __shfl_sync(0xffffffffu, xv, c + 2), a2);
+        a3 = fma(Lr[c + 3], __shfl_sync(0xffffffffu, xv, c + 3), a3);
+      }
+    }
+  } else {
+    warp_wait_flag(flags + b, epoch, lane);  // forward tile b
+    r = in ? __ldcg(x + gi) : 0.0;
+    for (int t = N - 1; t > b; --t) {
+      const int t0 = t * kTile;
+      double Lr[kTile];
+#pragma unroll
+      for (int q = 0; q < kTile; ++q) Lr[q] = (in && t0 + q < n) ? L[size_t(gi) * n + t0 + q] : 0.0;
+      warp_wait_flag(flags + N + t, epoch, lane);  // backward tile t
+      const double xv = t0 + lane < n ? __ldcg(x + t0 + lane) : 0.0;
+#pragma unroll
+      for (int q = 0; q < kTile; q += 4) {
+        a0 = fma(Lr[q], __shfl_sync(0xffffffffu, xv, q), a0);
+        a1 = fma(Lr[q + 1], __shfl_sync(0xffffffffu, xv, q + 1), a1);
+        a2 = fma(Lr[q + 2], __shfl_sync(0xffffffffu, xv, q + 2), a2);
+        a3 = fma(Lr[q + 3], __shfl_sync(0xffffffffu, xv, q + 3), a3);
+      }
+    }
+  }
+  double z = in ? r - ((a0 + a1) + (a2 + a3)) : 0.0;
+  if (fwd) {
+#pragma unroll
+    for (int c = 0; c < kTile - 1; ++c) {
+      const double zc = __shfl_sync(0xffffffffu, z, c);
+      if (lane > c) z = fma(-l[c], zc, z);
+    }
+  } else {
+#pragma unroll
+    for (int c = kTile - 1; c > 0; --c) {
+      const double zc = __shfl_sync(0xffffffffu, z, c);
+      if (lane < c) z = fma(-l[c], zc, z);
+    }
+  }
+  if (in) x[gi] = z * di;
+  __threadfence();
+  __syncwarp();
+  if (lane == 0) st_release_gpu(flags + (fwd ? b : N + b), epoch);
+}
+
+// x[n + k] = w_k (M_k dx - b[n + k])   (one warp per row k of M), over the
+// row's compacted nonzeros (compact_rows_kernel: Cv / Cc, count pre of the
+// row's last stored entry).
+__global__ void recover_kernel(const double* __restrict__ Cv, const int32_t* __restrict__ Cc,
+                               const int32_t* __restrict__ pre, const double* __restrict__ w,
+                               const int32_t* __restrict__ Kbase, const int32_t* __restrict__ Mlen,
+                               const double* __restrict__ b, int n, int mm, double* __restrict__ x) {
   const int k = int((int64_t(blockIdx.x) * blockDim.x + threadIdx.x) / 32), lane = threadIdx.x % 32;
   if (k >= mm) return;
   const int kb = Kbase[k], len = Mlen[k];
+  const int cnt = len > 0 ? pre[kb + len - 1] : 0;
   double s = 0.0;
-  for (int q = lane; q < len; q += 32) s = fma(K[kb + q], x[Kidx[kb + q]], s);
+  for (int q = lane; q < cnt; q += 32) s = fma(Cv[kb + q], x[Cc[kb + q]], s);
   s = warp_sum(s);
   if (lane == 0) x[n + k] = w[k] * (s - b[n + k]);
 }

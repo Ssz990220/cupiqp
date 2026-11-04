@@ -1,0 +1,23 @@
+kernel,grid,block,instances,dur_us,sm_pct,mem_pct,fp64_act,issue_act,occ_ach,occ_th,regs,spill_ld,spill_st,spr,bank_ld,bank_st,stalls
+weights_kernel,26,256,8,2.69,5.22,18.1,11.6,1.02,14.5,100,16,0,0,17.7,0,0,long_scoreboard 50%; imc_miss 23%; short_scoreboard 17%; no_instructions 4%
+compact_rows_kernel,807,256,8,7.65,18,56.7,20.4,21.8,81.9,100,40,0,0,2.71,0,0,long_scoreboard 77%; wait 6%; imc_miss 6%; short_scoreboard 5%
+assemble_kernel<16>,602,512,8,55.1,45.4,37.5,56.9,39.6,85.9,100,40,0,0,4.12,6.23e+03,4.08e+04,short_scoreboard 31%; long_scoreboard 16%; barrier 14%; wait 12%
+reduce_split_rows_kernel,215,256,8,6.85,5.18,19,27.4,6.45,34.5,100,40,0,0,3.05,0,0,long_scoreboard 65%; drain 14%; imc_miss 12%; wait 3%
+chol_panel_kernel,8,32,2,19.3,5.87,1.69,43.3,2.35,2.08,20.8,164,0,0,6.37,0,0,short_scoreboard 69%; wait 14%; imc_miss 7%; long_scoreboard 5%
+chol_update_kernel,196,256,2,9.63,34.5,10.5,70.1,9.63,34.3,100,36,0,0,11.7,0,0,short_scoreboard 61%; long_scoreboard 20%; imc_miss 7%; wait 4%
+chol_panel_kernel,7,32,2,19.3,5.09,1.77,43.2,2.35,2.07,20.8,164,0,0,6.31,0,0,short_scoreboard 68%; wait 14%; imc_miss 7%; long_scoreboard 6%
+chol_update_kernel,144,256,2,7.71,32.2,9.79,65.9,9.05,28.3,100,36,0,0,11.5,0,0,short_scoreboard 57%; long_scoreboard 20%; imc_miss 7%; wait 7%
+chol_panel_kernel,6,32,2,19.2,4.35,1.74,43.5,2.36,2.08,20.8,164,0,0,6.23,0,0,short_scoreboard 67%; wait 15%; imc_miss 8%; long_scoreboard 4%
+chol_update_kernel,100,256,2,5.9,29.8,9.1,57.5,7.92,19.6,100,36,0,0,11.3,0,0,short_scoreboard 52%; long_scoreboard 20%; imc_miss 11%; wait 7%
+chol_panel_kernel,5,32,2,19.3,3.55,1.62,43.2,2.35,2.07,20.8,164,0,0,6.11,0,0,short_scoreboard 64%; wait 17%; imc_miss 6%; long_scoreboard 6%
+chol_update_kernel,64,256,2,5.84,19.8,6.04,58.1,8,18.9,100,36,0,0,11,0,0,short_scoreboard 49%; long_scoreboard 22%; imc_miss 13%; wait 7%
+chol_panel_kernel,4,32,2,19.3,2.77,1.56,43.2,2.34,2.07,20.8,164,0,0,5.93,0,0,short_scoreboard 64%; wait 16%; long_scoreboard 7%; imc_miss 6%
+chol_update_kernel,36,256,2,4.11,16.2,5,41.1,5.67,16.1,100,36,0,0,10.6,0,0,short_scoreboard 52%; long_scoreboard 21%; imc_miss 13%; wait 5%
+chol_panel_kernel,3,32,2,19.4,2,1.46,43.1,2.34,2.08,20.8,164,0,0,5.6,0,0,short_scoreboard 62%; wait 19%; imc_miss 5%; long_scoreboard 5%
+chol_update_kernel,16,256,2,4.02,7.64,2.39,42.2,5.82,16.1,100,36,0,0,9.8,0,0,short_scoreboard 48%; long_scoreboard 21%; imc_miss 14%; wait 10%
+chol_panel_kernel,2,32,2,19.3,1.23,1.35,43.2,2.34,2.07,20.8,164,0,0,4.83,0,0,short_scoreboard 53%; wait 28%; imc_miss 9%; no_instructions 7%
+chol_update_kernel,4,256,1,4.06,1.57,0.868,41.5,5.72,13.6,100,36,0,0,7.61,0,0,short_scoreboard 39%; no_instructions 22%; long_scoreboard 17%; wait 17%
+chol_panel_kernel,1,32,1,12.9,0.689,1.6,38.6,2.78,2.08,20.8,164,0,0,2.88,0,0,short_scoreboard 50%; wait 27%; imc_miss 12%; no_instructions 12%
+reduce_rhs_kernel,241,128,2,12.6,15.3,33.3,36.7,3.69,30.9,100,40,0,0,6,0,0,long_scoreboard 65%; barrier 12%; short_scoreboard 11%; imc_miss 6%
+trsv_flow_kernel,16,32,2,44.8,0.718,1.64,4.13,1.12,2.09,25,168,0,0,8.8,0,0,long_scoreboard 58%; branch_resolving 22%; wait 8%; short_scoreboard 5%
+recover_kernel,807,256,2,10.8,58.6,42.4,67.6,12.9,85.7,100,40,0,0,2.39,0,0,long_scoreboard 46%; short_scoreboard 35%; tex_throttle 10%; imc_miss 4%

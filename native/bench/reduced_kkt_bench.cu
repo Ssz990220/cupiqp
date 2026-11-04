@@ -8,7 +8,10 @@
 //   cupiqp_native_reduced_kkt_bench --sweep 128,256,512,1024,2048 [--reps 50]
 //       Synthetic KKT matrices (P with ~8 entries per row, m = 2n rows of
 //       G with ~8 entries each, p = n / 4) for the n limit.
+//   --profile: cudaProfilerStart / Stop around the timing of the last real
+//       state (for ncu --profile-from-start off).
 // Prints one JSON object per line: label, n, p, m, op, graph_us.
+#include <cuda_profiler_api.h>
 #include <cuda_runtime.h>
 
 #include <algorithm>
@@ -160,7 +163,7 @@ int main(int argc, char** argv) {
     std::string data;
     std::vector<int> sweep;
     int c = 0, reps = 200;
-    bool with_cudss = true;
+    bool with_cudss = true, profile = false;
     for (int i = 1; i < argc; ++i) {
       std::string a = argv[i];
       if (a == "--data") data = argv[++i];
@@ -168,6 +171,7 @@ int main(int argc, char** argv) {
       else if (a == "--reps") reps = std::stoi(argv[++i]);
       else if (a == "--sweep") sweep = parse_list(argv[++i]);
       else if (a == "--no-cudss") with_cudss = false;
+      else if (a == "--profile") profile = true;
       else throw std::runtime_error("unknown argument " + a);
     }
     CudaStream stream = CudaStream::create();
@@ -196,7 +200,10 @@ int main(int argc, char** argv) {
       CUPIQP_CUDA_CHECK(cudaMemcpyAsync(Kd.data(), kv, sizeof(double) * Kd.size(), cudaMemcpyDeviceToDevice,
                                         solver.stream()));
       CUPIQP_CUDA_CHECK(cudaStreamSynchronize(solver.stream()));
+      // --profile: profiler range (ncu / nsys --capture-range) around the last state only.
+      if (profile && k == N) CUPIQP_CUDA_CHECK(cudaProfilerStart());
       time_state("case" + std::to_string(c) + "_k" + std::to_string(k), maps, Kd, reps, with_cudss, s);
+      if (profile && k == N) CUPIQP_CUDA_CHECK(cudaProfilerStop());
     }
     return 0;
   } catch (const std::exception& e) {

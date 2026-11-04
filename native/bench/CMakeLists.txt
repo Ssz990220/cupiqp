@@ -18,3 +18,9 @@ add_executable(cupiqp_native_reduced_kkt_bench reduced_kkt_bench.cu)
 target_link_libraries(cupiqp_native_reduced_kkt_bench PRIVATE cupiqp_native_internal)
 target_compile_options(cupiqp_native_reduced_kkt_bench PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
 set_target_properties(cupiqp_native_reduced_kkt_bench PROPERTIES BUILD_RPATH "${cudss_LIBRARY_DIR}")
+
+# Reduced KKT backend generality sweep and real-state accuracy check (docs/modules/ncu_kernels.md).
+add_executable(cupiqp_native_reduced_kkt_sweep reduced_kkt_sweep.cu)
+target_link_libraries(cupiqp_native_reduced_kkt_sweep PRIVATE cupiqp_native_internal)
+target_compile_options(cupiqp_native_reduced_kkt_sweep PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
+set_target_properties(cupiqp_native_reduced_kkt_sweep PROPERTIES BUILD_RPATH "${cudss_LIBRARY_DIR}")

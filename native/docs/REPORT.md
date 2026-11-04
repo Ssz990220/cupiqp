@@ -270,3 +270,37 @@ above the limit and skipped); cuDSS fails 16 of those 89 in every run and 6
 more in some runs. Tests: ctest 141 / 141, pytest 1,246, upstream
 `test_sparse_solver.py` 7 passed / 3 skipped with either backend.
 
+
+## 12. Nsight Compute pass on the reduced KKT kernels (added 2026-11-03)
+
+ncu analysis of every kernel of the reduced backend, then four kernel
+changes (one commit each), all inside `native/src/linalg/reduced_kkt/` and
+only active with `kkt_backend = Reduced`; cuDSS path and defaults
+unchanged. Details, per-kernel ncu tables, the generality sweep (28
+synthetic MPC-like problems, edge cases) and open issues:
+`native/docs/modules/ncu_kernels.md`; raw results:
+`native/bench/results/ncu-20261103/`.
+
+| Change | effect (graph replay, real states) |
+|---|---|
+| multi-block dataflow triangular solve | solve MPC 58.4 -> 43.9 us, Trajopt 85.8 -> 56.3 us; n = 2016: 1516 -> 280 us |
+| diagonal tile: CUDA rsqrt, pipelined pivot chain | factor MPC 190.5 -> 165.9 us, Trajopt 247.8 -> 216.8 us |
+| rhs reduction / recovery on compacted data | solve MPC 44.0 -> 38.8 us, Trajopt 57.0 -> 53.1 us |
+| pipelined row walk in the H assembly (bitwise same H) | assembly MPC 59.4 -> 53.1 us, Trajopt 61.4 -> 57.0 us |
+| total, one iteration (1 factor + 2 solves) | MPC 303.1 -> 234.5 us, Trajopt 415.6 -> 313.9 us |
+
+| Same-session ladder, gpu_resident, 20 repeats, end-to-end p50 (ms), before -> after | MPC | Trajopt |
+|---|---:|---:|
+| Native default (cuDSS, control) | 36.03 -> 35.89 | 39.98 -> 39.82 |
+| Native default + reduced | 14.24 -> 12.32 | 19.39 -> 16.22 |
+| same + whole-solve graph (evaluated as the Auto choice, not switched) | 12.74 -> 10.88 | 17.61 -> 14.41 |
+| staged + whole-solve graph + custom SpMV + reduced | 10.84 -> 8.98 | 15.96 -> 12.86 |
+
+Every transition passes the KKT check at 1e-6 with unchanged iteration
+statistics. Per iteration (Nsight Systems, iteration graph): MPC 616.5 ->
+541.8 us, Trajopt 713.5 -> 604.8 us. Synthetic MPC-like sweep (28 cases,
+n = 1 to 2030): iteration time faster in all 28 (-7.5% to -35.7%).
+Maros-Meszaros, reduced backend, 3 runs: 89 passed, 0 failed, 49 skipped
+(n > 2048) in every run before and after. Real-state accuracy within the
+run-to-run noise of the states. Tests: ctest 141 / 141, pytest 1,246,
+upstream 7 passed / 3 skipped with either backend.

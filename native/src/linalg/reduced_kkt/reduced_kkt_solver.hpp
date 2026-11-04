@@ -67,7 +67,7 @@ class ReducedKktSolver : public KktLinearSolver {
   const int32_t* Kidx_ = nullptr;
   double* K_ = nullptr;
   int32_t num_tasks_ = 0, num_split_rows_ = 0;
-  CudaBuffer<int32_t> Pptr_, Pcol_, Pslot_, Dslot_, Kbase_, Mlen_, Cptr_, Crow_, Coff_, Cslot_;
+  CudaBuffer<int32_t> Pptr_, Pcol_, Pslot_, Dslot_, Kbase_, Mlen_, Cptr_, Crow_, Coff_;
   // Assembly tasks (row, CSC range, output) and the rows split over several.
   CudaBuffer<int32_t> task_row_, task_e0_, task_e1_, srow_, stask0_, stask1_;
   CudaBuffer<int64_t> task_out_;
@@ -75,7 +75,11 @@ class ReducedKktSolver : public KktLinearSolver {
   CudaBuffer<double> Cv_;
   CudaBuffer<int32_t> Cc_, pre_;
   CudaBuffer<double> w_, H_, dinv_, rhs_, sol_, ws_;
+  CudaBuffer<double> Ca_;  // w_k M_ki per CSC entry of M (written by the assembly)
   CudaBuffer<int32_t> status_;
+  // Multi-block triangular solve: ticket counter (task + epoch) and flags.
+  CudaBuffer<unsigned long long> trsv_ticket_;
+  CudaBuffer<uint32_t> trsv_flags_;
 };
 
 }  // namespace cupiqp

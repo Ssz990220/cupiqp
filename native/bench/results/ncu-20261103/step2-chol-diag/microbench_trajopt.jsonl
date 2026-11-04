@@ -1,0 +1,8 @@
+{"label":"case0_k12","n":241,"p":64,"m":6385,"op":"reduced_assemble","graph_us":62.34,"factor_status":0}
+{"label":"case0_k12","n":241,"p":64,"m":6385,"op":"reduced_factor","graph_us":216.06,"factor_status":0}
+{"label":"case0_k12","n":241,"p":64,"m":6385,"op":"reduced_solve","graph_us":56.99,"factor_status":0}
+{"label":"case0_k12","n":241,"p":64,"m":6385,"op":"reduced_iter_1f2s","graph_us":325.44,"factor_status":0}
+{"label":"case0_k25","n":241,"p":64,"m":6385,"op":"reduced_assemble","graph_us":62.21,"factor_status":0}
+{"label":"case0_k25","n":241,"p":64,"m":6385,"op":"reduced_factor","graph_us":216.77,"factor_status":0}
+{"label":"case0_k25","n":241,"p":64,"m":6385,"op":"reduced_solve","graph_us":56.96,"factor_status":0}
+{"label":"case0_k25","n":241,"p":64,"m":6385,"op":"reduced_iter_1f2s","graph_us":324.48,"factor_status":0}
