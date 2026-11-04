@@ -1,0 +1,545 @@
+{
+  "start_utc": "2026-11-04T17:02:37.487075+00:00",
+  "repeats": 20,
+  "backend": "native",
+  "dataset": "mpc",
+  "solver": "cupiqp_native SparseSolver 0.1.0",
+  "precision": "float64",
+  "affinity": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31
+  ],
+  "cases": 64,
+  "trajectories": 16,
+  "pattern_groups": 1,
+  "forward_pairs": 48,
+  "pairs": [
+    {
+      "group": 0,
+      "trajectory": "01-fac4-pick-1025275d",
+      "from_case": "main-khi-001-pick-step0036",
+      "to_case": "main-khi-001-pick-step0054",
+      "from_control_step": 36,
+      "to_control_step": 54,
+      "step_gap": 18
+    },
+    {
+      "group": 0,
+      "trajectory": "01-fac4-pick-1025275d",
+      "from_case": "main-khi-001-pick-step0054",
+      "to_case": "main-khi-001-pick-step0072",
+      "from_control_step": 54,
+      "to_control_step": 72,
+      "step_gap": 18
+    },
+    {
+      "group": 0,
+      "trajectory": "01-fac4-pick-1025275d",
+      "from_case": "main-khi-001-pick-step0072",
+      "to_case": "main-khi-001-pick-step0090",
+      "from_control_step": 72,
+      "to_control_step": 90,
+      "step_gap": 18
+    },
+    {
+      "group": 0,
+      "trajectory": "02-fac4-place-0dcfcb47",
+      "from_case": "main-khi-002-place-step0030",
+      "to_case": "main-khi-002-place-step0045",
+      "from_control_step": 30,
+      "to_control_step": 45,
+      "step_gap": 15
+    },
+    {
+      "group": 0,
+      "trajectory": "02-fac4-place-0dcfcb47",
+      "from_case": "main-khi-002-place-step0045",
+      "to_case": "main-khi-002-place-step0061",
+      "from_control_step": 45,
+      "to_control_step": 61,
+      "step_gap": 16
+    },
+    {
+      "group": 0,
+      "trajectory": "02-fac4-place-0dcfcb47",
+      "from_case": "main-khi-002-place-step0061",
+      "to_case": "main-khi-002-place-step0076",
+      "from_control_step": 61,
+      "to_control_step": 76,
+      "step_gap": 15
+    },
+    {
+      "group": 0,
+      "trajectory": "13-3209-pick-9ef9aba7",
+      "from_case": "main-khi-013-pick-step0033",
+      "to_case": "main-khi-013-pick-step0050",
+      "from_control_step": 33,
+      "to_control_step": 50,
+      "step_gap": 17
+    },
+    {
+      "group": 0,
+      "trajectory": "13-3209-pick-9ef9aba7",
+      "from_case": "main-khi-013-pick-step0050",
+      "to_case": "main-khi-013-pick-step0067",
+      "from_control_step": 50,
+      "to_control_step": 67,
+      "step_gap": 17
+    },
+    {
+      "group": 0,
+      "trajectory": "13-3209-pick-9ef9aba7",
+      "from_case": "main-khi-013-pick-step0067",
+      "to_case": "main-khi-013-pick-step0084",
+      "from_control_step": 67,
+      "to_control_step": 84,
+      "step_gap": 17
+    },
+    {
+      "group": 0,
+      "trajectory": "14-3209-place-ade1ae5c",
+      "from_case": "main-khi-014-place-step0035",
+      "to_case": "main-khi-014-place-step0052",
+      "from_control_step": 35,
+      "to_control_step": 52,
+      "step_gap": 17
+    },
+    {
+      "group": 0,
+      "trajectory": "14-3209-place-ade1ae5c",
+      "from_case": "main-khi-014-place-step0052",
+      "to_case": "main-khi-014-place-step0070",
+      "from_control_step": 52,
+      "to_control_step": 70,
+      "step_gap": 18
+    },
+    {
+      "group": 0,
+      "trajectory": "14-3209-place-ade1ae5c",
+      "from_case": "main-khi-014-place-step0070",
+      "to_case": "main-khi-014-place-step0087",
+      "from_control_step": 70,
+      "to_control_step": 87,
+      "step_gap": 17
+    },
+    {
+      "group": 0,
+      "trajectory": "25-9a68-pick-3ac0cab9",
+      "from_case": "main-khi-025-pick-step0037",
+      "to_case": "main-khi-025-pick-step0056",
+      "from_control_step": 37,
+      "to_control_step": 56,
+      "step_gap": 19
+    },
+    {
+      "group": 0,
+      "trajectory": "25-9a68-pick-3ac0cab9",
+      "from_case": "main-khi-025-pick-step0056",
+      "to_case": "main-khi-025-pick-step0075",
+      "from_control_step": 56,
+      "to_control_step": 75,
+      "step_gap": 19
+    },
+    {
+      "group": 0,
+      "trajectory": "25-9a68-pick-3ac0cab9",
+      "from_case": "main-khi-025-pick-step0075",
+      "to_case": "main-khi-025-pick-step0094",
+      "from_control_step": 75,
+      "to_control_step": 94,
+      "step_gap": 19
+    },
+    {
+      "group": 0,
+      "trajectory": "26-9a68-place-886488fa",
+      "from_case": "main-khi-026-place-step0030",
+      "to_case": "main-khi-026-place-step0045",
+      "from_control_step": 30,
+      "to_control_step": 45,
+      "step_gap": 15
+    },
+    {
+      "group": 0,
+      "trajectory": "26-9a68-place-886488fa",
+      "from_case": "main-khi-026-place-step0045",
+      "to_case": "main-khi-026-place-step0060",
+      "from_control_step": 45,
+      "to_control_step": 60,
+      "step_gap": 15
+    },
+    {
+      "group": 0,
+      "trajectory": "26-9a68-place-886488fa",
+      "from_case": "main-khi-026-place-step0060",
+      "to_case": "main-khi-026-place-step0075",
+      "from_control_step": 60,
+      "to_control_step": 75,
+      "step_gap": 15
+    },
+    {
+      "group": 0,
+      "trajectory": "37-80b7-pick-0f7cd937",
+      "from_case": "main-khi-037-pick-step0036",
+      "to_case": "main-khi-037-pick-step0054",
+      "from_control_step": 36,
+      "to_control_step": 54,
+      "step_gap": 18
+    },
+    {
+      "group": 0,
+      "trajectory": "37-80b7-pick-0f7cd937",
+      "from_case": "main-khi-037-pick-step0054",
+      "to_case": "main-khi-037-pick-step0073",
+      "from_control_step": 54,
+      "to_control_step": 73,
+      "step_gap": 19
+    },
+    {
+      "group": 0,
+      "trajectory": "37-80b7-pick-0f7cd937",
+      "from_case": "main-khi-037-pick-step0073",
+      "to_case": "main-khi-037-pick-step0091",
+      "from_control_step": 73,
+      "to_control_step": 91,
+      "step_gap": 18
+    },
+    {
+      "group": 0,
+      "trajectory": "38-80b7-place-a043801a",
+      "from_case": "main-khi-038-place-step0030",
+      "to_case": "main-khi-038-place-step0045",
+      "from_control_step": 30,
+      "to_control_step": 45,
+      "step_gap": 15
+    },
+    {
+      "group": 0,
+      "trajectory": "38-80b7-place-a043801a",
+      "from_case": "main-khi-038-place-step0045",
+      "to_case": "main-khi-038-place-step0060",
+      "from_control_step": 45,
+      "to_control_step": 60,
+      "step_gap": 15
+    },
+    {
+      "group": 0,
+      "trajectory": "38-80b7-place-a043801a",
+      "from_case": "main-khi-038-place-step0060",
+      "to_case": "main-khi-038-place-step0075",
+      "from_control_step": 60,
+      "to_control_step": 75,
+      "step_gap": 15
+    },
+    {
+      "group": 0,
+      "trajectory": "49-f7f9-pick-4fc785fa",
+      "from_case": "main-khi-049-pick-step0038",
+      "to_case": "main-khi-049-pick-step0057",
+      "from_control_step": 38,
+      "to_control_step": 57,
+      "step_gap": 19
+    },
+    {
+      "group": 0,
+      "trajectory": "49-f7f9-pick-4fc785fa",
+      "from_case": "main-khi-049-pick-step0057",
+      "to_case": "main-khi-049-pick-step0076",
+      "from_control_step": 57,
+      "to_control_step": 76,
+      "step_gap": 19
+    },
+    {
+      "group": 0,
+      "trajectory": "49-f7f9-pick-4fc785fa",
+      "from_case": "main-khi-049-pick-step0076",
+      "to_case": "main-khi-049-pick-step0095",
+      "from_control_step": 76,
+      "to_control_step": 95,
+      "step_gap": 19
+    },
+    {
+      "group": 0,
+      "trajectory": "50-f7f9-place-4f16be3b",
+      "from_case": "main-khi-050-place-step0029",
+      "to_case": "main-khi-050-place-step0044",
+      "from_control_step": 29,
+      "to_control_step": 44,
+      "step_gap": 15
+    },
+    {
+      "group": 0,
+      "trajectory": "50-f7f9-place-4f16be3b",
+      "from_case": "main-khi-050-place-step0044",
+      "to_case": "main-khi-050-place-step0059",
+      "from_control_step": 44,
+      "to_control_step": 59,
+      "step_gap": 15
+    },
+    {
+      "group": 0,
+      "trajectory": "50-f7f9-place-4f16be3b",
+      "from_case": "main-khi-050-place-step0059",
+      "to_case": "main-khi-050-place-step0074",
+      "from_control_step": 59,
+      "to_control_step": 74,
+      "step_gap": 15
+    },
+    {
+      "group": 0,
+      "trajectory": "61-83b6-pick-c5e056b0",
+      "from_case": "main-khi-061-pick-step0039",
+      "to_case": "main-khi-061-pick-step0058",
+      "from_control_step": 39,
+      "to_control_step": 58,
+      "step_gap": 19
+    },
+    {
+      "group": 0,
+      "trajectory": "61-83b6-pick-c5e056b0",
+      "from_case": "main-khi-061-pick-step0058",
+      "to_case": "main-khi-061-pick-step0078",
+      "from_control_step": 58,
+      "to_control_step": 78,
+      "step_gap": 20
+    },
+    {
+      "group": 0,
+      "trajectory": "61-83b6-pick-c5e056b0",
+      "from_case": "main-khi-061-pick-step0078",
+      "to_case": "main-khi-061-pick-step0098",
+      "from_control_step": 78,
+      "to_control_step": 98,
+      "step_gap": 20
+    },
+    {
+      "group": 0,
+      "trajectory": "62-83b6-place-3d05e33e",
+      "from_case": "main-khi-062-place-step0026",
+      "to_case": "main-khi-062-place-step0040",
+      "from_control_step": 26,
+      "to_control_step": 40,
+      "step_gap": 14
+    },
+    {
+      "group": 0,
+      "trajectory": "62-83b6-place-3d05e33e",
+      "from_case": "main-khi-062-place-step0040",
+      "to_case": "main-khi-062-place-step0053",
+      "from_control_step": 40,
+      "to_control_step": 53,
+      "step_gap": 13
+    },
+    {
+      "group": 0,
+      "trajectory": "62-83b6-place-3d05e33e",
+      "from_case": "main-khi-062-place-step0053",
+      "to_case": "main-khi-062-place-step0066",
+      "from_control_step": 53,
+      "to_control_step": 66,
+      "step_gap": 13
+    },
+    {
+      "group": 0,
+      "trajectory": "73-8d8e-pick-0e50ffbd",
+      "from_case": "main-khi-073-pick-step0043",
+      "to_case": "main-khi-073-pick-step0065",
+      "from_control_step": 43,
+      "to_control_step": 65,
+      "step_gap": 22
+    },
+    {
+      "group": 0,
+      "trajectory": "73-8d8e-pick-0e50ffbd",
+      "from_case": "main-khi-073-pick-step0065",
+      "to_case": "main-khi-073-pick-step0087",
+      "from_control_step": 65,
+      "to_control_step": 87,
+      "step_gap": 22
+    },
+    {
+      "group": 0,
+      "trajectory": "73-8d8e-pick-0e50ffbd",
+      "from_case": "main-khi-073-pick-step0087",
+      "to_case": "main-khi-073-pick-step0109",
+      "from_control_step": 87,
+      "to_control_step": 109,
+      "step_gap": 22
+    },
+    {
+      "group": 0,
+      "trajectory": "74-8d8e-place-1b44c902",
+      "from_case": "main-khi-074-place-step0046",
+      "to_case": "main-khi-074-place-step0070",
+      "from_control_step": 46,
+      "to_control_step": 70,
+      "step_gap": 24
+    },
+    {
+      "group": 0,
+      "trajectory": "74-8d8e-place-1b44c902",
+      "from_case": "main-khi-074-place-step0070",
+      "to_case": "main-khi-074-place-step0093",
+      "from_control_step": 70,
+      "to_control_step": 93,
+      "step_gap": 23
+    },
+    {
+      "group": 0,
+      "trajectory": "74-8d8e-place-1b44c902",
+      "from_case": "main-khi-074-place-step0093",
+      "to_case": "main-khi-074-place-step0117",
+      "from_control_step": 93,
+      "to_control_step": 117,
+      "step_gap": 24
+    },
+    {
+      "group": 0,
+      "trajectory": "85-e364-pick-9cb3a11f",
+      "from_case": "main-khi-085-pick-step0045",
+      "to_case": "main-khi-085-pick-step0067",
+      "from_control_step": 45,
+      "to_control_step": 67,
+      "step_gap": 22
+    },
+    {
+      "group": 0,
+      "trajectory": "85-e364-pick-9cb3a11f",
+      "from_case": "main-khi-085-pick-step0067",
+      "to_case": "main-khi-085-pick-step0090",
+      "from_control_step": 67,
+      "to_control_step": 90,
+      "step_gap": 23
+    },
+    {
+      "group": 0,
+      "trajectory": "85-e364-pick-9cb3a11f",
+      "from_case": "main-khi-085-pick-step0090",
+      "to_case": "main-khi-085-pick-step0113",
+      "from_control_step": 90,
+      "to_control_step": 113,
+      "step_gap": 23
+    },
+    {
+      "group": 0,
+      "trajectory": "86-e364-place-141cfcca",
+      "from_case": "main-khi-086-place-step0030",
+      "to_case": "main-khi-086-place-step0046",
+      "from_control_step": 30,
+      "to_control_step": 46,
+      "step_gap": 16
+    },
+    {
+      "group": 0,
+      "trajectory": "86-e364-place-141cfcca",
+      "from_case": "main-khi-086-place-step0046",
+      "to_case": "main-khi-086-place-step0061",
+      "from_control_step": 46,
+      "to_control_step": 61,
+      "step_gap": 15
+    },
+    {
+      "group": 0,
+      "trajectory": "86-e364-place-141cfcca",
+      "from_case": "main-khi-086-place-step0061",
+      "to_case": "main-khi-086-place-step0077",
+      "from_control_step": 61,
+      "to_control_step": 77,
+      "step_gap": 16
+    }
+  ],
+  "expected_timed_transitions": 1920,
+  "packed_value_bytes": [
+    2119784
+  ],
+  "one_time_setup_ms": [
+    18.373671
+  ],
+  "first_solve_incl_jit_and_capture_ms": [
+    24.303958
+  ],
+  "settings": {
+    "check_duality_gap": true,
+    "compute_timings": false,
+    "delta_init": 0.0001,
+    "enable_cuda_graph": true,
+    "eps_abs": 1e-08,
+    "eps_duality_gap_abs": 1e-08,
+    "eps_duality_gap_rel": 0.0,
+    "eps_rel": 0.0,
+    "graph_mode": "GraphMode.Auto",
+    "infeasibility_threshold": 0.9,
+    "iterative_refinement_always_enabled": false,
+    "iterative_refinement_eps_abs": 1e-12,
+    "iterative_refinement_eps_rel": 1e-12,
+    "iterative_refinement_max_iter": 10,
+    "iterative_refinement_min_improvement_rate": 5.0,
+    "iterative_refinement_static_regularization_eps": 1e-08,
+    "iterative_refinement_static_regularization_rel": 4.930380657631324e-32,
+    "max_factor_retires": 10,
+    "max_iter": 250,
+    "preconditioner_iter": 10,
+    "preconditioner_reuse_on_update": false,
+    "preconditioner_scale_cost": false,
+    "reg_finetune_dual_update_threshold": 7,
+    "reg_finetune_lower_limit": 1e-13,
+    "reg_finetune_primal_update_threshold": 7,
+    "reg_lower_limit": 1e-10,
+    "rho_init": 1e-06,
+    "tau": 0.99,
+    "verbose": false
+  },
+  "native_graph_mode": "auto",
+  "native_staged_inputs": false,
+  "protocol": "Same as benchmark/replay_mpc_updates.py: one fixed template and solver per stored pattern; explicit zeros retained; all numeric values replaced through public update(); two excluded warm-up passes; first snapshot of each trajectory solved as an excluded seed every repeat; mode order rotates; buffers, events, packets and pinned outputs preallocated. Setup and the first solve (JIT, first graph capture) are timed separately and excluded.",
+  "timing": "cpu_x_ready_wall_ms: host wall time (CLOCK_MONOTONIC_RAW) from input values ready to x on the CPU, one explicit wait; cpu_x_ready_wall_ms_perf_counter is the same interval on time.perf_counter (the original harness clock, NTP-slewed). Includes Python-side call overhead of update()/solve() for both backends; the pure native C++ path is measured separately by native/bench/mpc_replay.cpp.",
+  "numerical_warm_start": false,
+  "limitation": "Sampled transitions (MPC gaps 13-24 ticks); frozen snapshots without closed-loop feedback.",
+  "gc": "Disabled during replay; restored on exit.",
+  "end_utc": "2026-11-04T17:03:04.957341+00:00",
+  "timed_transitions": 1920,
+  "seed_summary": {
+    "samples": 640,
+    "valid": 640,
+    "strict_valid": 640
+  },
+  "observed_buffer_addresses_stable": true,
+  "native_counters_during_replay": [
+    {
+      "host_syncs": 5376,
+      "graph_launches": 2688,
+      "graph_captures": 0,
+      "updates": 2688,
+      "solves": 2688
+    }
+  ]
+}
