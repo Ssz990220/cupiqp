@@ -1,5 +1,14 @@
 # Reduced (Schur-complement) KKT backend (`Settings::kkt_backend = Reduced`)
 
+> **Status 2026-11-04 (cuDSS removed).** This solver is no longer an opt-in
+> backend: it is the only KKT linear solver, and `Settings::kkt_backend`,
+> `KktBackend` and the cuDSS path no longer exist. The n <= 2048 limit is now
+> a limit of the whole solver (`setup()` throws `Unsupported`). The custom
+> SpMV is the only SpMV, and `GraphMode::Auto` is the whole-solve graph.
+> Comparisons with cuDSS below are measurements from 2026-11-03 and remain
+> valid as records. Current end-to-end numbers: REPORT.md section 14.
+
+
 Brief: `native/docs/briefs/reduced_kkt_backend.md`. Builds on the feasibility
 probe (`native/docs/modules/reduced_kkt.md`). Raw data:
 `native/bench/results/reduced-kkt-backend-20261103/`. GPU: RTX 4070 SUPER

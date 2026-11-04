@@ -32,14 +32,21 @@ class Status(IntEnum):
 
 
 GraphMode = _ext.GraphMode
-KktBackend = _ext.KktBackend
-_KKT_BACKEND_NAMES = {"cudss": KktBackend.Cudss, "reduced": KktBackend.Reduced}
 
 # Reference Settings fields that only exist for unsupported features; setting
 # them to a non-default value is rejected at setup().
 _UNSUPPORTED_DEFAULTS = {"enable_grad": False, "gradient_smoothing": False}
+# Reference Settings field that selects the deterministic mode of the
+# reference's sparse direct solver. The native solver has no such solver, and
+# its KKT solve and sparse products always use fixed summation orders, so the
+# field is accepted, stored and ignored (docs/design/DEVIATIONS.md section 4).
+_REFERENCE_DETERMINISTIC_FIELD = "use_deterministic_mode_for_cudss"
+# Reference Settings fields that are accepted and stored but have no effect.
+# The gradient fields belong to an unsupported feature (rejected through
+# _UNSUPPORTED_DEFAULTS above).
 _IGNORED = {"gradient_smoothing_mu", "gradient_smoothing_tol", "gradient_smoothing_max_iter",
-            "gradient_on_failure"}
+            "gradient_on_failure", _REFERENCE_DETERMINISTIC_FIELD}
+_IGNORED_DEFAULTS = {_REFERENCE_DETERMINISTIC_FIELD: False}
 
 
 class Settings:
@@ -47,7 +54,7 @@ class Settings:
 
     def __init__(self, native_settings):
         object.__setattr__(self, "_native", native_settings)
-        object.__setattr__(self, "_extra", dict(_UNSUPPORTED_DEFAULTS))
+        object.__setattr__(self, "_extra", {**_UNSUPPORTED_DEFAULTS, **_IGNORED_DEFAULTS})
 
     @property
     def dtype(self):
@@ -67,11 +74,6 @@ class Settings:
         native = object.__getattribute__(self, "_native")
         if name == "dtype":
             raise AttributeError("Settings.dtype is fixed (float64 in the native milestone 1)")
-        if name == "kkt_backend" and isinstance(value, str):
-            try:
-                value = _KKT_BACKEND_NAMES[value.lower()]
-            except KeyError:
-                raise ValueError(f"kkt_backend must be one of {sorted(_KKT_BACKEND_NAMES)}; got {value!r}")
         if hasattr(native, name):
             setattr(native, name, value)
         elif name in _UNSUPPORTED_DEFAULTS or name in _IGNORED:

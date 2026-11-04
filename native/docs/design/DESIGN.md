@@ -5,11 +5,18 @@ updates). Numerical reference: pinned Python/Warp cuPIQP at
 `d538dda8c93a76a16fcddc2f98c24c98133a7937`. See FEASIBILITY.md for the audit and
 proofs of concept; DEPENDENCY_GRAPH.md for module ownership and order.
 
+Revision 2026-11-04: cuDSS and cuSPARSE were removed. The KKT system is solved
+by the dense Schur-complement solver (`src/linalg/reduced_kkt`, custom
+Cholesky), which limits the problem to n <= 2048 variables, and every sparse
+product uses the module's own CSR/CSC kernels. Sections below describe that
+state; the original cuDSS design is in git history (commit `dcadf6a` and
+earlier) and REPORT.md sections 1 to 13.
+
 ## 1. Goals and non-goals
 
 Goals
 - `libcupiqp_native`: a C++17/CUDA library whose solve path depends only on the
-  CUDA runtime, cuSPARSE, and cuDSS (no Python, Warp, or JAX).
+  CUDA runtime (no Python, Warp, JAX, or CUDA math library; CUB is header only).
 - Same algorithm, convergence tests, regularization, scaling, and status
   semantics as the reference sparse backend.
 - Two front ends over one core:
@@ -23,8 +30,9 @@ Goals
 
 Non-goals for milestone 1 (rejected at setup with a clear error): dense and
 multistage backends, batch size > 1, FP32, gradients (`enable_grad`, smoothing,
-`backward`), verbose per-iteration printing in graph modes, and capture of
-`solve()` into a user graph. The code keeps a leading batch axis in all
+`backward`), verbose per-iteration printing in graph modes, capture of
+`solve()` into a user graph, and problems with more than 2048 variables (the
+KKT solve forms a dense n x n Schur complement; setup throws `Unsupported`). The code keeps a leading batch axis in all
 per-problem buffers and passes `B` to kernels so that batching can be added later.
 Only `B = 1` is built and tested.
 
@@ -55,15 +63,16 @@ enum class Status : int32_t { Unsolved = -1, Solved = 0, MaxIterReached = 1,
   PrimalInfeasible = 2, DualInfeasible = 3, NumericalIssues = 4 };
 
 enum class GraphMode : int32_t {
-  Auto,                    // enable_cuda_graph: SolveGraphDeviceLoop with kkt_backend = Reduced,
-                           // IterationGraphHostLoop with Cudss; else None
+  Auto,                    // enable_cuda_graph: SolveGraphDeviceLoop; else None
   None,                    // plain launches, host-driven loops (reference NO_GRAPH)
-  IterationGraphHostLoop,  // reference default for the sparse backend
-  SolveGraphDeviceLoop     // whole solve in one graph (Cudss: memcpy patch, FEASIBILITY 3.3)
+  IterationGraphHostLoop,  // one graph per IPM iteration (reference default for the sparse backend)
+  SolveGraphDeviceLoop     // whole solve in one graph, device-controlled loop
 };
 
 struct Settings { /* every field of cupiqp.Settings for FP64 with the same names and
-                     defaults (Settings.for_dtype(float64)), plus graph_mode */ };
+                     defaults (Settings.for_dtype(float64)) except
+                     use_deterministic_mode_for_cudss (no cuDSS; the Python shim
+                     accepts and ignores it), plus graph_mode */ };
 
 struct Info {  // host copy of per-problem diagnostics (reference Result.info)
   Status status; int32_t iter, factor_retries, no_primal_update, no_dual_update;
@@ -91,7 +100,7 @@ class SparseSolver {
   void download_x(double* host, cudaEvent_t done = nullptr);  // async D2H into caller memory
   Info info();                                // synchronizes the stream
   cudaStream_t stream() const;
-  Counters counters() const;                  // syncs, graph launches, cuDSS allocs, captures
+  Counters counters() const;                  // syncs, graph launches, captures, updates, solves
   std::vector<DebugBuffer> debug_buffers();   // named device spans for parity tests
 };
 }
@@ -118,7 +127,8 @@ class SparseSolver {
   `cudaStreamDefault` (blocking with respect to the legacy default stream), as
   Warp does.
 - `setup()` copies the patterns to the device and the values into solver-owned
-  storage. It synchronizes once at the end, because analysis needs the host.
+  storage, and builds the index maps of the KKT solve on the host. It
+  synchronizes once at the end.
 - `update()` enqueues device-to-device copies of the given values into
   solver-owned storage and then the scaling and KKT value updates. The caller
   must make the inputs valid in stream order before the call: produce them on
@@ -128,30 +138,31 @@ class SparseSolver {
 - `update_from_host()` copies into fixed pinned staging and then into device
   storage. With pinned caller memory it is one H2D copy per block and does not
   synchronize.
-- `solve()` enqueues the full solve. In the default graph mode it also blocks on
-  one 8-byte D2H copy of the loop state per IPM iteration, as the reference
-  does. On return, the solution is complete in stream order. Device results
+- `solve()` enqueues the full solve. In the default graph mode
+  (`SolveGraphDeviceLoop`) it is one graph launch and does not wait on the
+  device. `IterationGraphHostLoop` and `None` block on one D2H copy of the loop
+  state per IPM iteration, as the reference does. On return, the solution is complete in stream order. Device results
   (`result()`) can be consumed by work enqueued later on `stream()`. Host reads
   must go through `download_x` plus `cudaStreamSynchronize`/event, or `info()`.
 - All device buffers are allocated in `setup()` and keep their addresses until
-  the solver is destroyed. `update()` and `solve()` never allocate. cuDSS
-  workspace comes from a counting allocator; see section 4.
+  the solver is destroyed. `update()` and `solve()` never allocate.
 
 ### 2.3 Error handling
 - API misuse (invalid patterns, wrong call order, unsupported settings, frozen
   setting changed after setup) throws `cupiqp::Error` (derived from
   `std::runtime_error`) with a code and message. No state changes on throw.
-- CUDA, cuSPARSE, and cuDSS errors in setup throw `cupiqp::Error` with the
-  library status code and call site.
+- CUDA errors throw `cupiqp::Error` with the CUDA error and call site.
 - In the hot path, launches are checked with `cudaGetLastError` (no sync). A
   library error throws, after which the solver is unusable (`Status` reads
   `NumericalIssues`).
 - Numerical failures never throw. They become statuses exactly as in the
   reference: factor retries, then `NumericalIssues`; a non-finite KKT solution
-  gives `NumericalIssues`; iteration cap gives `MaxIterReached`. The reference
-  never reads cuDSS's factorization info, because that query blocks and breaks
-  capture. The port does the same: `factor_status` stays 0, and failures surface
-  through the solution finite check (`mark_failed`).
+  gives `NumericalIssues`; iteration cap gives `MaxIterReached`. The Cholesky of
+  the KKT solve writes its outcome to a device status (nonzero on a
+  non-positive or non-finite pivot), which drives the factor-retry kernel as
+  in the reference dense backend. (The reference sparse backend never reads
+  its direct solver's factorization info; failures there surface only through
+  the solution finite check, `mark_failed`, which the port also keeps.)
 
 ## 3. Python binding (nanobind)
 
@@ -171,8 +182,11 @@ harness:
   DLPack capsules or objects exposing `__cuda_array_interface__`. `.result.info`
   mirrors the reference `Info` (`status`, `iter`, `to_host()`).
 - `cupiqp_native.Status`, `Settings` and `PIQP_INF` mirror the reference.
-- `cupiqp_native._testing`: per-module entry points (Ruiz, KKT assembly, cuDSS
-  wrapper, IPM kernels, ...) operating on caller device arrays, used by
+  Reference settings fields without a native meaning are accepted and
+  ignored (`use_deterministic_mode_for_cudss`) or rejected when set to a
+  non-default value (gradients); see DEVIATIONS.md.
+- `cupiqp_native._testing`: per-module entry points (Ruiz, KKT assembly,
+  SpMV, IPM kernels, ...) operating on caller device arrays, used by
   module parity tests to compare with the reference's own Python/Warp
   components fed the same inputs. Each module owns one `bind_<module>.cpp`.
 
@@ -183,21 +197,19 @@ library and the C++ benchmark do not link Python.
 
 | Stage | Work | Frequency |
 |---|---|---|
-| construct | stream (owned or borrowed), cuSPARSE handle, cuDSS handle/config/data, counting memory handler, threading layer | once |
-| setup | validate patterns; upload patterns; allocate every device buffer (data, scaling, KKT, variables, residuals, info, work, loop state, pinned host mirrors); build KKT pattern and index maps on the host; create cuSPARSE descriptors and SpMV buffers; create cuDSS matrix/dense descriptors; copy initial values; finite masks; Ruiz scaling (if `preconditioner_iter > 0`); constraints RHS norm; scatter P/A/G into KKT; `cudssExecute(ANALYSIS)`; synchronize | once |
+| construct | stream (owned or borrowed), loop helper streams | once |
+| setup | reject n > 2048; validate patterns; upload patterns; allocate every device buffer (data, scaling, KKT, Schur complement, variables, residuals, info, work, loop state, pinned host mirrors); build the KKT pattern and index maps on the host; build the CSC views of A and G for the transposed products; build the Schur-complement assembly maps; copy initial values; finite masks; Ruiz scaling (if `preconditioner_iter > 0`); constraints RHS norm; scatter P/A/G into KKT; synchronize | once |
 | update | `unscale_data` (only blocks that are not replaced; replaced blocks are overwritten, so skipping them is exact); copy new values; refresh finite masks if bounds changed; `reset` + fresh Ruiz (device early exit) when a matrix changed and `preconditioner_reuse_on_update == false`, else reuse scaling; refresh `x_b_scaling` if box bounds changed; RHS norm; scatter changed blocks into the KKT values, including masked G when bounds changed | per update |
 | solve | upload device settings (pinned staging, only when changed); reset solve state; initial guess (factorize with retries, RHS, KKT solve, centering, mu); residuals; termination; IPM loop; terminate active; unscale solution | per solve |
-| IPM iteration | prepare factor + predictor; update regularization; KKT diagonal update; FACTORIZATION; retry loop (conditional node); predictor solve; corrector prep; corrector solve; mark failed; step; update vars; mu; residuals (5 SpMV + fused kernel); rho/delta update; prox update; regularized residuals; advance; termination; continue flag | per iteration |
-| destroy | graphs, cuDSS objects, cuSPARSE objects, buffers, owned stream (in that order) | once |
+| IPM iteration | prepare factor + predictor; update regularization; KKT diagonal update; factorization (Schur-complement assembly + Cholesky); retry loop (conditional node); predictor solve; corrector prep; corrector solve; mark failed; step; update vars; mu; residuals (5 SpMV + fused kernel); rho/delta update; prox update; regularized residuals; advance; termination; continue flag | per iteration |
+| destroy | graphs, buffers, owned stream (in that order) | once |
 
-Symbolic analysis runs once, at setup. Numeric factorization runs every
-iteration (`FACTORIZATION` phase as in the reference; `REFACTORIZATION` is
-recorded as a possible future optimization and is not used). The KKT values
-buffer, its pattern, the right-hand side and solution buffers keep stable
-addresses. cuDSS descriptors point at them, and graphs capture them by address.
+The index maps are built once, at setup. The numeric factorization runs every
+iteration. The KKT values buffer, the Schur complement, the right-hand side and
+solution buffers keep stable addresses, and graphs capture them by address.
 
 CUDA Graphs
-- `IterationGraphHostLoop` (`Auto` with the cuDSS backend): `_run_one_iteration` is captured once, on
+- `IterationGraphHostLoop` (explicit choice): `_run_one_iteration` is captured once, on
   the first solve after setup, into `iteration_graph_`. That first capture is
   reported separately in benchmarks. Each solve then runs the prelude eagerly,
   followed by `while (loop_state_host[1]) { cudaGraphLaunch; memcpyAsync(loop_state -> pinned); cudaStreamSynchronize; }`.
@@ -205,16 +217,17 @@ CUDA Graphs
   matching `wp.capture_while` under capture.
 - `None`: same sequence with plain launches. Both conditional loops (retry and
   IPM) are driven from the host, as Warp's `capture_while` does outside capture.
-- `SolveGraphDeviceLoop`: the whole device solve, including the IPM loop as a
-  WHILE node, is captured once; one host wait per solve.
-  - With `kkt_backend = Reduced` it is the `Auto` choice (since 2026-11-03): no
-    cuDSS is involved, so nothing needs patching; the capture checks only that
-    no allocation node is recorded.
-  - With cuDSS it stays opt-in: pageable memcpy nodes produced by cuDSS SOLVE are
-    re-pointed to pinned snapshots (FEASIBILITY 3.3), and a capture-time
-    self-test compares two snapshots.
-- `update()` is never captured in milestone 1. It is a fixed, short sequence of
-  launches with no host sync; this can be revisited after measuring.
+- `SolveGraphDeviceLoop` (the `Auto` choice): the whole device solve, including
+  the IPM loop as a WHILE node, is captured once on the first solve and
+  launched once per solve, with no host wait inside. Every operation is a
+  custom kernel or a memset/memcpy between device buffers, so one capture is
+  enough. If the capture or instantiation fails anyway, the solver falls back
+  to `IterationGraphHostLoop` for its lifetime.
+- `Auto` selects `None` when `enable_cuda_graph` is false, and every mode
+  selects `None` with `verbose` or `iterative_refinement_always_enabled`
+  (reference `_cuda_graph_mode` rule, kept unchanged).
+- `update()` runs eagerly; `update_staged()` replays one graph per block
+  combination (inputs at fixed addresses).
 - Graphs are invalidated and recaptured only if settings that change the
   captured sequence change (none of the runtime settings do; they live in
   device memory, as in the reference `DeviceSettings`).
@@ -225,10 +238,10 @@ CUDA Graphs
 |---|---|---|---|
 | M0 core | `include/cupiqp/*.hpp`, `src/common/*` (integration owner) | `settings.py`, `typedef.py`, `results.py`, `utils.py` | settings upload, status codes |
 | M1 data | `src/problem/data/*` | `data.py`, `data_kernels.py`, `sparse/sparse_data.py`, `sparse/batched_csr.py`, `sparse/csr_helpers.py`, `sparse_solver._check_csr` | stored values, finite masks, `active_G_row`, `active_x_bound`, `num_finite_bounds` |
-| M2 spmv | `src/linalg/spmv/*` | `sparse/sparse_matvec.py` | `P x`, `A x`, `A^T y`, `G x`, `G^T z` |
+| M2 spmv | `src/linalg/spmv/*` (own CSR / CSC kernels) | `sparse/sparse_matvec.py` | `P x`, `A x`, `A^T y`, `G x`, `G^T z` |
 | M3 ruiz | `src/problem/ruiz/*` | `preconditioner.py`, `preconditioner_kernels.py`, `sparse/sparse_preconditioner*.py` | `delta`, `delta_b`, `cost_scaling`, `x_b_scaling` (init aliases `active_x_bound`), scaled data, unscale factors, RHS norm, unscaled solution |
 | M4 kkt_assembly | `src/linalg/kkt_assembly/*` | `sparse/sparse_kkt_solver.py`, `sparse_kkt_solver_kernels.py` | KKT pattern, slot maps, KKT values after scatter and after diagonal update |
-| M5 cudss | `src/linalg/cudss/*` (incl. graph patch) | `sparse/sparse_direct_solver.py` | factor/solve on given values; allocation counts |
+| M5 reduced_kkt (replaced M5 cudss on 2026-11-04) | `src/linalg/reduced_kkt/*` | `sparse/sparse_direct_solver.py` (role), `dense` backend (factor-status semantics) | Schur complement H, Cholesky status, solution of the KKT system |
 | M6 kkt_system | `src/linalg/kkt_system/*` | `kkt_systems.py`, `kkt_systems_kernels.py`, `kkt_solver.py` | `x_reg`, `z_reg`, `w_delta_inv`, condensed RHS, recovered step, solve status |
 | M7 ipm_kernels | `src/ipm/kernels/*` | `solver_kernels.py` (forward kernels) | each kernel's outputs from identical inputs |
 | M8 solver | `src/ipm/kernels/solver/*` | `solver.py`, `sparse/sparse_solver.py` | full iterate per iteration (`max_iter = k`) |
@@ -265,8 +278,7 @@ before the parallel work starts):
 
 ## 7. Instrumentation
 `Counters`: host syncs issued by the solver, graph launches, graph captures,
-cuDSS device allocations and frees (through the counting memory handler),
-eager kernel launches, and factorization retries. Optional CUDA-event phase
+updates and solves. Optional CUDA-event phase
 timers (`settings.compute_timings`) cover update, scaling, KKT assembly,
 factorization, and KKT solve. The benchmark also wraps runs in `nsys` for
 independent CUDA API counts.
@@ -282,48 +294,44 @@ independent CUDA API counts.
   nonzero, Hessian symmetry (full P storage), constraint signs and bound masks,
   infinite/finite bound switches, scaling and unscaling round trips, KKT slot
   mapping, status handling (solved, max-iter, numerical issues from a NaN input,
-  infeasible), repeated updates with address stability and a single ANALYSIS
-  call, graph-enabled vs graph-disabled solves on the same inputs.
+  infeasible), repeated updates with address stability and no allocation,
+  graph-enabled vs graph-disabled solves on the same inputs (bitwise equal).
 - Integration: upstream `tests/solver/test_sparse_solver.py`, `test_easy_qps.py`
   and the Maros-Meszaros subset run through `cupiqp_native` via a conftest
-  switch; MPC replay parity (status, iterations, objective, residuals, KKT check
+  switch (problems with n > 2048 are skipped with the reason); MPC replay parity (status, iterations, objective, residuals, KKT check
   at 1e-6) against the reference on all 64 snapshots and 48 sampled
   transitions.
 - Tolerances for parity with the reference: per-module outputs within 1e-12
-  relative (1e-10 for quantities downstream of cuDSS); end to end, the same
+  relative (1e-10 for quantities downstream of the KKT solve); end to end, the same
   status, iterations within plus or minus 1 (exact match reported as a rate),
   objectives within 1e-8 relative, and the independent KKT check passing at 1e-6.
 
 ## 9. Future work hooks
-- Batched (`B > 1`) via cuDSS uniform batching or the stacked block-diagonal
-  system as in the reference; FP32 via kernel templates (all kernels are
+- Batched (`B > 1`) via one Schur complement per problem (the kernels already
+  carry a batch axis in their buffers); FP32 via kernel templates (all kernels are
   templated on `T`, with only `double` instantiated).
 - JAX: an XLA FFI custom call (`xla::ffi`) over `SparseSolver` with `setup`
   outside JIT and `update+solve` as the custom call on XLA's stream. Not needed
   for the benchmark, which uses Warp arrays.
-- `REFACTORIZATION` phase, user-graph capture of `update()` + `solve()`.
+- A sparse factorization for n > 2048 (a native sparse LDL^T or supernodal
+  Cholesky); user-graph capture of `update()` + `solve()`.
 
 ## 10. Implementation rules (all modules)
 
 1. **Allocation.** Every device and pinned buffer is allocated in `setup()`.
    `update()`, `solve()` and IPM iterations perform no `cudaMalloc*`/`cudaFree*`
    and no host heap allocation on the hot path (no `std::vector` growth,
-   no `std::function` construction inside loops; build closures once). cuDSS
-   is the only component that may request device memory internally. Its
-   requests go through the counting memory handler (`Counters`). If steady
-   state shows any request, M5 serves them from a device arena preallocated at
-   setup, sized from the warm-up peak, with a pool fallback that is counted
-   and reported.
+   no `std::function` construction inside loops; build closures once). No
+   component requests device memory internally.
 2. **CPU-GPU interaction.** Data stays on the GPU. Inside an iteration, the only
    host interaction is the reference's continue-flag read in
    `IterationGraphHostLoop` mode. Decisions (retries, termination, Ruiz early
    exit, step lengths) are taken on the device.
 3. **Setup may be expensive.** It may build index maps on the host, allocate
-   every buffer, create every descriptor and workspace, run the symbolic
-   analysis, and capture graphs on first use.
+   every buffer, build every index map, and capture graphs on first use.
 4. **Memory safety.** Device memory is owned by `CudaBuffer<T>`, pinned memory by
    `CudaPinnedBuffer<T>`, and streams and events by `CudaStream`/`CudaEvent`.
-   Library handles and descriptors get move-only RAII owners. No raw
+   Any library handle would get a move-only RAII owner. No raw
    `cudaMalloc`/`cudaFree` outside `core/buffer.hpp`. Views hold non-owning
    pointers and never outlive their owner. Sizes are checked at API
    boundaries; kernels bounds-check their thread index.

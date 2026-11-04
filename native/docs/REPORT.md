@@ -4,6 +4,13 @@ Native CUDA C++ port of the cuPIQP sparse solver (FP64, batch size 1, fixed
 sparsity, repeated numeric updates). Numerical reference: Python/Warp cuPIQP at
 `d538dda`. The native solve path has no Python, Warp or JAX dependency.
 
+Sections are in chronological order and keep the numbers of their date.
+Sections 1 to 13 were measured with cuDSS (the default KKT solver until
+2026-11-04) and, unless stated, cuSPARSE SpMV. **Section 14 describes the
+current state**: cuDSS and cuSPARSE removed, the dense Schur-complement KKT
+solver and the custom SpMV are the only implementations, n <= 2048, and a
+solve is one CUDA graph launch by default.
+
 ## 1. Deliverables
 
 | Item | Location |
@@ -135,7 +142,7 @@ main run, wall time over GPU event time is 1.0005, as in the earlier baseline
 ## 7. Build and run
 
 ```bash
-# build (WSL, CUDA 13.2, cuDSS 0.8.0.10 redist in ~/Projects/.deps/cudss-0.8.0.10)
+# build (WSL, CUDA 13.2; since 2026-11-04 no cuDSS or cuSPARSE, section 14)
 cd ~/Projects/cupiqp-native/native
 cmake -S . -B ../build/native -DPython_EXECUTABLE=$HOME/Projects/cupiqp-native/.venv/bin/python
 cmake --build ../build/native -j
@@ -154,20 +161,23 @@ B=/mnt/c/Users/91354/Projects/gpu-qp-benchmark
 .venv/bin/python -I native/bench/tools/export_snapshots.py --bundle $B/datasets/trajopt-20261102 --cohort main --out native/bench/data/trajopt
 
 # path 1: native test suite (C++ only)
-build/native/bench/cupiqp_native_replay --data native/bench/data/mpc --out <dir> --repeats 20 [--graph-mode device] [--custom-spmv]
+build/native/bench/cupiqp_native_replay --data native/bench/data/mpc --out <dir> --repeats 20 [--graph-mode auto|iteration|none|device] [--staged]
 .venv/bin/python -I native/bench/tools/check_solutions.py --results <dir> --bundle $B/qp_benchmark_v2_20261102
 build/native/bench/cupiqp_native_module_bench --data native/bench/data/mpc/group_0.bin --reps 200 --out <file>.json
 
 # path 2: existing harness protocol, reference vs native backend
 .venv/bin/python native/bench/harness/replay_updates.py --backend reference --dataset mpc --repeats 20 --output <dir>
 .venv/bin/python native/bench/harness/replay_updates.py --backend native    --dataset mpc --repeats 20 --output <dir>
-#   (--dataset trajopt for Trajopt; native: --graph-mode device|none, --custom-spmv)
+#   (--dataset trajopt for Trajopt; native: --graph-mode auto|iteration|device|none, --staged)
 
 # profiles
 bash native/bench/tools/profile_all.sh <dir> mpc
 ```
 
 ## 8. Deviations, unsupported features, open issues
+
+State of 2026-11-03 (with cuDSS and cuSPARSE); for the current state see
+section 14 and `native/docs/design/DEVIATIONS.md` section 4.
 
 See `native/docs/design/DEVIATIONS.md`. In short:
 - All intentional changes are numerically neutral and verified by tests.
@@ -324,3 +334,87 @@ SOLVED and KKT@1e-6, iteration statistics unchanged
 | cuDSS, Auto (control) | 26.65 / 29.20 | 35.98 / 39.34 | 39.89 / 46.12 |
 | Reduced, per-iteration graph | 26.64 / 29.22 | 12.31 / 13.30 | 16.16 / 18.32 |
 | **Reduced, Auto (whole-solve graph)** | **1.00** | **10.87 / 11.71** | **14.41 / 16.39** |
+
+## 14. cuDSS and cuSPARSE removed (2026-11-04)
+
+Branch `feature/remove-cudss` (brief `native/docs/briefs/remove_cudss.md`).
+The dense Schur-complement solver (`src/linalg/reduced_kkt`) is the only KKT
+linear solver, and the custom CSR/CSC kernels (`src/linalg/spmv`) are the
+only SpMV. The library links only the CUDA runtime; CUB stays (header only).
+
+What changed, by layer:
+- Build: no `find_package(cudss)`, no `CUDA::cusparse`, no cuDSS rpaths or
+  `CUPIQP_CUDSS_MT_LIB`; `CUPIQP_CUDSS_ROOT` is gone.
+- `src/linalg/cudss` deleted (wrapper, counting allocator, pageable-memcpy
+  graph patch). `spmv` lost the cuSPARSE handle, descriptors and
+  `SpmvBackend` (`SpMV::init(M, transpose)`, `SparseOperators::init(data)`).
+  `kkt_assembly` and `kkt_system` stay: the solver reads the assembled KKT
+  values through index maps. `common`: the cuSPARSE / cuDSS check macros and
+  the graph-patch hook of `GraphExec::instantiate` are gone.
+- Solver: `setup()` throws `Unsupported` for n > 2048 (every problem, not
+  only an opt-in backend). `GraphMode::Auto` = `SolveGraphDeviceLoop` (one
+  graph launch per solve), captured once; the two-capture self-test, the
+  memcpy patch and the cuDSS warm-up are gone. If the capture ever fails the
+  solver falls back to `IterationGraphHostLoop`. `IterationGraphHostLoop`
+  and `None` remain explicit choices; verbose and
+  `iterative_refinement_always_enabled` still select `None`.
+- Public C++ API removed: `KktBackend`, `Settings::kkt_backend`,
+  `Settings::custom_spmv`, `Settings::use_deterministic_mode_for_cudss`, the
+  `cudss_*` fields of `Counters`, `ErrorCode::Cusparse` (4) and
+  `ErrorCode::Cudss` (5) (`Internal` keeps 6). `version_string()` returns
+  `"0.1.0"`.
+- Python: `bind_cudss.cpp` deleted; `KktBackend`, `kkt_backend`,
+  `custom_spmv` and the cuDSS counters leave the binding; `_testing.SpMVOp`
+  has no `custom` argument (property `computes_product`). The shim accepts,
+  stores (default `False`) and ignores the reference field
+  `use_deterministic_mode_for_cudss`; `kkt_backend` / `custom_spmv` raise
+  `AttributeError` (DEVIATIONS.md section 4).
+- Bench: `mpc_replay` has no `--kkt-backend` / `--custom-spmv`;
+  `module_bench` times the reduced factor / solve; `reduced_kkt_bench` lost its
+  cuDSS rows and `--no-cudss`; `reduced_kkt_probe.cu` (cuDSS / cuBLAS /
+  cuSOLVER probe), `run_ladder_reduced.sh`, `summarize_ladder_reduced.py` and
+  `poc/cudss_graph_poc.cu` deleted (in git history); `run_auto_graph_check.sh`
+  runs one configuration per dataset; `run_ladder.sh` has new rows.
+
+Verification (fresh build directories `build/native-nocudss` at `70abe7f` for
+the measurements and `build/native-nocudss-final` for the final tree):
+
+| Check | Result |
+|---|---|
+| `ldd` of `_ext.cpython-312-*.so`, `cupiqp_native_replay` and all 12 test executables | only `libcudart.so.13` from CUDA; no `libcudss`, no `libcusparse` (cuBLAS / cuSOLVER neither). `libcupiqp_native.a` is a static archive: `nm` finds no cudss / cusparse symbol |
+| `grep -riE 'cudss\|cusparse'` over `native/src`, `native/include`, `native/python`, `native/CMakeLists.txt` | one line: the shim's `_REFERENCE_DETERMINISTIC_FIELD = "use_deterministic_mode_for_cudss"`, the name the shim must accept |
+| ctest | 112 / 112 passed, 3 disabled timing tests (115 registered; before: 147 registered, 143 run). Removed: 10 cuDSS tests, 16 cuSPARSE SpMV parametrizations, 6 solver / KKT-system cases that compared with or selected cuDSS (merged into the remaining ones) |
+| pytest `native/tests/python` | 1,084 passed (before 1,246: -6 cuDSS parity, -158 cuSPARSE SpMV parametrizations, +2 shim / reference checks) |
+| upstream `tests/solver/test_sparse_solver.py` | 7 passed, 3 skipped (2 batched, 1 float32: outside milestone 1) |
+| upstream Maros-Meszaros, 3 runs | 89 passed, 49 skipped in every run; every skip is "native solver limit: ... n <= 2048" (n from 2,763 to 18,009). Same 89 / 89 as the reduced backend on 2026-11-03 |
+| upstream `test_easy_qps.py` (not in the required set) | 7 passed, 2 failed: the two sparse cases solve a batch of 100,000 problems and the shim rejects batch size > 1. Identical at `dcadf6a` (checked) |
+
+Replay, native C++, 20 repeats, same session, `run_auto_graph_check.sh`
+with `BUILD=build/native-nocudss`
+(`native/bench/results/remove-cudss-20261104`, commands in its
+`COMMANDS.md`). Every transition SOLVED and KKT@1e-6: MPC 1,920 / 1,920,
+Trajopt 960 / 960. One graph launch per solve. gpu_resident, end-to-end
+(input ready -> x on the CPU), ms:
+
+| Configuration | MPC p50 / P95 | Trajopt p50 / P95 |
+|---|---|---|
+| Baseline: reduced backend, Auto, cuSPARSE SpMV (`reduced-auto-wholegraph-20261103`) | 10.87 / 11.71 | 14.41 / 16.39 |
+| **Now: library defaults (Auto)** | **9.15 / 9.86** (-15.9% / -15.8%) | **13.04 / 14.92** (-9.5% / -9.0%) |
+| Now: defaults + staged inputs | 9.00 / 9.70 | 12.87 / 14.54 |
+| Now: harness path (`replay_updates.py --backend native`, Python shim) | 9.20 / 9.90 | 13.06 / 15.49 |
+
+Solve p50 (CUDA events): MPC 9.93 -> 8.20 ms, Trajopt 13.77 -> 12.36 ms;
+update p50 unchanged (0.90 / 0.62 ms). The gain is the custom SpMV, which the
+baseline row did not use. The staged row matches the 2026-11-03 best opt-in
+configuration (8.98 / 12.86 ms, section 12) within run-to-run noise.
+Host_values mode is within 0.1 ms of gpu_resident in every row.
+
+Iterations. MPC: per-transition counts are identical to the baseline
+(p50 24.5, max 28, mean 24.5833). Trajopt: p50 30 and max 36 unchanged, mean
+29.8104 -> 29.7917; 92 of the 960 timed solves differ from the baseline
+solve at the same position (55 take one iteration fewer, 37 one more). All
+92 belong to the 5 of the 24 Trajopt transitions whose count already changed
+between repeats in the baseline (cuSPARSE transposed SpMV is not
+reproducible). Now every transition has one count in all 40 runs, and each
+of those counts was also observed in the baseline. The harness path gives the
+same iteration statistics on both datasets.

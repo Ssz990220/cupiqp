@@ -1,9 +1,9 @@
-// Microbenchmark of the reduced KKT backend (ReducedKktSolver) against cuDSS
-// on the same KKT values, as replayed CUDA graphs (median of --reps).
+// Microbenchmark of the KKT linear solver (ReducedKktSolver) on real and
+// synthetic KKT values, as replayed CUDA graphs (median of --reps). Results
+// before 2026-11-04 also timed cuDSS on the same values (removed with cuDSS).
 //
 //   cupiqp_native_reduced_kkt_bench --data <group_k.bin> --case 0 [--reps 200]
-//       Real KKT states: the public solver (reduced backend, replay
-//       settings) runs to convergence with max_iter = k for k = N/2 and N;
+//       Real KKT states: the public solver (replay settings) runs to convergence with max_iter = k for k = N/2 and N;
 //       kkt.values of iteration k is copied and timed.
 //   cupiqp_native_reduced_kkt_bench --sweep 128,256,512,1024,2048 [--reps 50]
 //       Synthetic KKT matrices (P with ~8 entries per row, m = 2n rows of
@@ -26,7 +26,6 @@
 #include "common/graph.hpp"
 #include "common/handles.hpp"
 #include "cupiqp/cupiqp.hpp"
-#include "linalg/cudss/cudss_solver.hpp"
 #include "linalg/kkt_assembly/kkt_pattern.hpp"
 #include "linalg/reduced_kkt/reduced_kkt_solver.hpp"
 #include "snapshot_io.hpp"
@@ -57,13 +56,12 @@ double graph_us(cudaStream_t s, int reps, const std::function<void(cudaStream_t)
 }
 
 // Times reduced assemble / cholesky / solve / one iteration (1 factor + 2
-// solves) and the cuDSS equivalents on the KKT values in Kd.
+// solves) on the KKT values in Kd.
 void time_state(const std::string& label, const KktHostMaps& maps, CudaBuffer<double>& Kd, int reps,
-                bool with_cudss, cudaStream_t s) {
+                cudaStream_t s) {
   const CsrPattern& kp = maps.kkt;
   const int dim = kp.rows;
-  CudaBuffer<int32_t> ip(kp.indptr.size()), ix(kp.indices.size());
-  ip.copy_from_host(kp.indptr.data(), kp.indptr.size(), s);
+  CudaBuffer<int32_t> ix(kp.indices.size());
   ix.copy_from_host(kp.indices.data(), kp.indices.size(), s);
   ReducedKktSolver red;
   red.init(maps, ix.data(), Kd.data(), s);
@@ -89,22 +87,6 @@ void time_state(const std::string& label, const KktHostMaps& maps, CudaBuffer<do
          red.solve(c);
          red.solve(c);
        }));
-  if (!with_cudss) return;
-  Counters cnt;
-  CudssSolver cu(&cnt);
-  cu.init(dim, kp.nnz(), ip.data(), ix.data(), Kd.data(), false, s);
-  cu.analyze(s);
-  CUPIQP_CUDA_CHECK(cudaMemcpyAsync(cu.rhs(), b.data(), sizeof(double) * dim, cudaMemcpyHostToDevice, s));
-  cu.factor(s);
-  cu.solve(s);
-  CUPIQP_CUDA_CHECK(cudaStreamSynchronize(s));
-  emit("cudss_factor", graph_us(s, reps, [&](cudaStream_t c) { cu.factor(c); }));
-  emit("cudss_solve", graph_us(s, reps, [&](cudaStream_t c) { cu.solve(c); }));
-  emit("cudss_iter_1f2s", graph_us(s, reps, [&](cudaStream_t c) {
-         cu.factor(c);
-         cu.solve(c);
-         cu.solve(c);
-       }));
 }
 
 std::vector<int> parse_list(const std::string& v) {
@@ -116,7 +98,7 @@ std::vector<int> parse_list(const std::string& v) {
 }
 
 // Synthetic KKT values in KktAssembly's layout (see test_reduced_kkt.cu).
-void synthetic(int n, int reps, bool with_cudss, cudaStream_t s) {
+void synthetic(int n, int reps, cudaStream_t s) {
   const int p = n / 4, m = 2 * n;
   std::mt19937 g(n);
   std::uniform_int_distribution<int> col(0, n - 1);
@@ -153,7 +135,7 @@ void synthetic(int n, int reps, bool with_cudss, cudaStream_t s) {
   for (int e : maps.diag_z) K[e] = -pos(g);
   CudaBuffer<double> Kd(K.size());
   Kd.copy_from_host(K.data(), K.size(), s);
-  time_state("synthetic", maps, Kd, reps, with_cudss, s);
+  time_state("synthetic", maps, Kd, reps, s);
 }
 
 }  // namespace
@@ -163,20 +145,19 @@ int main(int argc, char** argv) {
     std::string data;
     std::vector<int> sweep;
     int c = 0, reps = 200;
-    bool with_cudss = true, profile = false;
+    bool profile = false;
     for (int i = 1; i < argc; ++i) {
       std::string a = argv[i];
       if (a == "--data") data = argv[++i];
       else if (a == "--case") c = std::stoi(argv[++i]);
       else if (a == "--reps") reps = std::stoi(argv[++i]);
       else if (a == "--sweep") sweep = parse_list(argv[++i]);
-      else if (a == "--no-cudss") with_cudss = false;
       else if (a == "--profile") profile = true;
       else throw std::runtime_error("unknown argument " + a);
     }
     CudaStream stream = CudaStream::create();
     cudaStream_t s = stream.get();
-    for (int n : sweep) synthetic(n, reps, with_cudss, s);
+    for (int n : sweep) synthetic(n, reps, s);
     if (data.empty()) return 0;
     bench::Snapshots g = bench::load_snapshots(data);
     KktHostMaps maps = build_kkt_host_maps(g.P, g.A, g.C);
@@ -187,7 +168,6 @@ int main(int argc, char** argv) {
     auto& st = solver.settings();
     st.eps_abs = st.eps_duality_gap_abs = 1e-8;
     st.eps_rel = st.eps_duality_gap_rel = 0.0;
-    st.kkt_backend = KktBackend::Reduced;
     solver.setup(g.P, g.view(packets.data()), &g.A, &g.C);
     solver.solve();
     const int N = solver.info().iter;
@@ -202,7 +182,7 @@ int main(int argc, char** argv) {
       CUPIQP_CUDA_CHECK(cudaStreamSynchronize(solver.stream()));
       // --profile: profiler range (ncu / nsys --capture-range) around the last state only.
       if (profile && k == N) CUPIQP_CUDA_CHECK(cudaProfilerStart());
-      time_state("case" + std::to_string(c) + "_k" + std::to_string(k), maps, Kd, reps, with_cudss, s);
+      time_state("case" + std::to_string(c) + "_k" + std::to_string(k), maps, Kd, reps, s);
       if (profile && k == N) CUPIQP_CUDA_CHECK(cudaProfilerStop());
     }
     return 0;

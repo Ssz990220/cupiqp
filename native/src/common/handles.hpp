@@ -1,6 +1,5 @@
-// RAII wrappers for CUDA streams and events. Library handles and descriptors
-// (cuSPARSE, cuDSS) are wrapped by their owning modules with the same pattern:
-// move-only, released in the destructor, never copied.
+// RAII wrappers for CUDA streams and events: move-only, released in the
+// destructor, never copied.
 #pragma once
 
 #include <cuda_runtime_api.h>

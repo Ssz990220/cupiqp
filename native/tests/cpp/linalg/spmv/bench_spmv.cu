@@ -1,10 +1,11 @@
-// Benchmark (DESIGN 10.6 optimization assessment): cuSPARSE SpMV vs custom
-// CSR kernels on the MPC shapes (n = 169, p = 64, m = 2521, nnz(P) = 8977,
+// Benchmark (DESIGN 10.6 optimization assessment): the SpMV kernel against
+// alternative custom CSR / CSC kernels on the MPC shapes (n = 169, p = 64, m = 2521, nnz(P) = 8977,
 // nnz(A) = 920, nnz(G) = 249801, G about 59% stored and 82% explicit zeros).
 // Synthetic random patterns with those sizes. Times: CUDA events around a
 // batch of calls, warmed, median of repeats; "graph" replays one captured
 // graph holding the batch (GPU time without host enqueue cost), "stream"
-// enqueues the batch eagerly (includes cuSPARSE host overhead).
+// enqueues the batch eagerly (includes host launch overhead). Results before
+// 2026-11-04 also timed cuSPARSE (removed as a dependency).
 //
 // Usage: bench_spmv [reps=15] [batch=200]
 #include <algorithm>
@@ -198,7 +199,6 @@ int main(int argc, char** argv) {
   const int batch = argc > 2 ? std::atoi(argv[2]) : 200;
   CudaStream stream = CudaStream::create(cudaStreamNonBlocking);
   cudaStream_t s = stream.get();
-  CusparseHandle handle;
   Timer timer{s, reps, batch};
 
   struct Mat {
@@ -250,37 +250,11 @@ int main(int argc, char** argv) {
       };
 
       SpMV op;
-      op.init(handle.get(), dM.view(), tr);
-      report("cusparse ALG_DEFAULT", [&](cudaStream_t st) { op(st, 1.0, xp, 0.0, yp); });
-      SpMV cop;
-      cop.init(nullptr, dM.view(), tr, SpmvBackend::Custom);
-      report("SpMV Custom (" + std::to_string(cop.lanes()) + " lanes)",
-             [&](cudaStream_t st) { cop(st, 1.0, xp, 0.0, yp); });
+      op.init(dM.view(), tr);
+      report("SpMV (" + std::to_string(op.lanes()) + " lanes)",
+             [&](cudaStream_t st) { op(st, 1.0, xp, 0.0, yp); });
 
       if (!tr) {
-        // cuSPARSE CSR_ALG2 (deterministic by documentation) for comparison.
-        cusparseSpMatDescr_t mat;
-        cusparseDnVecDescr_t vx, vy;
-        CUPIQP_CUSPARSE_CHECK(cusparseCreateCsr(&mat, M.rows, M.cols, M.nnz(), dM.indptr.data(), dM.indices.data(),
-                                                dM.values.data(), CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
-                                                CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F));
-        CUPIQP_CUSPARSE_CHECK(cusparseCreateDnVec(&vx, nx, dx.data(), CUDA_R_64F));
-        CUPIQP_CUSPARSE_CHECK(cusparseCreateDnVec(&vy, ny, dy.data(), CUDA_R_64F));
-        double one = 1.0, zero = 0.0;
-        size_t bytes = 0;
-        CUPIQP_CUSPARSE_CHECK(cusparseSpMV_bufferSize(handle.get(), CUSPARSE_OPERATION_NON_TRANSPOSE, &one, mat, vx,
-                                                      &zero, vy, CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG2, &bytes));
-        CudaBuffer<unsigned char> buf(std::max<size_t>(bytes, 1));
-        report("cusparse CSR_ALG2", [&](cudaStream_t st) {
-          cusparseSetStream(handle.get(), st);
-          double a = 1.0, b = 0.0;
-          CUPIQP_CUSPARSE_CHECK(cusparseSpMV(handle.get(), CUSPARSE_OPERATION_NON_TRANSPOSE, &a, mat, vx, &b, vy,
-                                             CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG2, buf.data()));
-        });
-        cusparseDestroySpMat(mat);
-        cusparseDestroyDnVec(vx);
-        cusparseDestroyDnVec(vy);
-
         const int* ip = dM.indptr.data();
         const int* ix = dM.indices.data();
         auto lanes = [&](auto L, const char* nm) {

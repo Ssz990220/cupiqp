@@ -1,5 +1,24 @@
 # Module M2 `spmv`: hand-off note
 
+> **Status 2026-11-04 (cuSPARSE removed).** The custom kernels described
+> below as the opt-in `SpmvBackend::Custom` are now the only implementation;
+> cuSPARSE, `CusparseHandle` and `SpmvBackend` are gone. Current API:
+> `SpMV::init(const CsrView<double>& M, bool transpose)`,
+> `SpMV::operator()(s, alpha, x, beta, y)`, `x_len()`, `y_len()`,
+> `computes_product()` (false for an empty matrix: then y = beta y without a
+> product kernel), `lanes()`; `SparseOperators::init(const SparseDataView<double>&)`
+> and the five products. Binding: `_testing.SpMVOp(rows, cols, nnz, indptr,
+> indices, values, transpose=False)` with the property `computes_product`,
+> `_testing.SparseOps(n, p, m, nnz_P, ..., G_values)`. Tests now: C++
+> `test_spmv` 23 cases (16 shape cases plus 7), all requiring bitwise
+> reproducibility (eager repeats, capture vs eager, conditional WHILE body);
+> pytest 159 parity cases against the reference within 1e-14 of the
+> magnitude sum (no bitwise case: the reference library sums in another
+> order). `bench_spmv` no longer times cuSPARSE. The rest of this note is the
+> original hand-off record (2026-11-03), including the cuSPARSE measurements
+> that motivated the switch.
+
+
 Graph-safe sparse matrix-vector products `P x`, `A x`, `A^T y`, `G x`, `G^T z`
 (reference `cupiqp/sparse/sparse_matvec.py` `SparseMatVecProduct` and
 `SparseKKTSolver.eval_*`). FP64, B = 1.

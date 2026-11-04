@@ -6,7 +6,8 @@
 // KKT = bmat([[P + I_n, None, None], [A, I_p, None], [G, None, I_m]]) with
 // sorted columns and duplicates summed: the full P block is stored, A and G in
 // the lower-left, explicit identity diagonals; every stored entry of P, A, G
-// (explicit zeros included) keeps a slot. cuDSS reads the lower triangle.
+// (explicit zeros included) keeps a slot. The values buffer is the input of
+// ReducedKktSolver (linalg/reduced_kkt), which reads it through index maps.
 //
 // INTERFACE CONTRACT (set by the integration owner).
 #pragma once

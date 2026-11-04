@@ -65,9 +65,6 @@ void bind_solver(nb::module_& m, nb::module_& testing) {
       .value("None_", GraphMode::None)
       .value("IterationGraphHostLoop", GraphMode::IterationGraphHostLoop)
       .value("SolveGraphDeviceLoop", GraphMode::SolveGraphDeviceLoop);
-  nb::enum_<KktBackend>(m, "KktBackend")
-      .value("Cudss", KktBackend::Cudss)
-      .value("Reduced", KktBackend::Reduced);
 
   nb::class_<Settings> st(m, "NativeSettings");
   st.def(nb::init<>())
@@ -80,9 +77,8 @@ void bind_solver(nb::module_& m, nb::module_& testing) {
       RW(iterative_refinement_always_enabled) RW(iterative_refinement_eps_abs)
       RW(iterative_refinement_eps_rel) RW(iterative_refinement_max_iter)
       RW(iterative_refinement_min_improvement_rate) RW(iterative_refinement_static_regularization_eps)
-      RW(iterative_refinement_static_regularization_rel) RW(use_deterministic_mode_for_cudss)
-      RW(custom_spmv) RW(enable_cuda_graph) RW(verbose) RW(compute_timings) RW(graph_mode)
-      RW(kkt_backend)
+      RW(iterative_refinement_static_regularization_rel) RW(enable_cuda_graph) RW(verbose)
+      RW(compute_timings) RW(graph_mode)
 #undef RW
       .def("verify", &Settings::verify);
 
@@ -193,9 +189,7 @@ void bind_solver(nb::module_& m, nb::module_& testing) {
              Counters c = s.counters();
              nb::dict d;
              d["host_syncs"] = c.host_syncs; d["graph_launches"] = c.graph_launches;
-             d["graph_captures"] = c.graph_captures; d["cudss_device_allocs"] = c.cudss_device_allocs;
-             d["cudss_device_frees"] = c.cudss_device_frees; d["cudss_analysis_calls"] = c.cudss_analysis_calls;
-             d["cudss_factor_calls"] = c.cudss_factor_calls; d["cudss_solve_calls"] = c.cudss_solve_calls;
+             d["graph_captures"] = c.graph_captures;
              d["updates"] = c.updates; d["solves"] = c.solves;
              return d;
            })

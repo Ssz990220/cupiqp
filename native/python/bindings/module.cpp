@@ -14,7 +14,6 @@ void bind_data(nb::module_&, nb::module_&);
 void bind_spmv(nb::module_&, nb::module_&);
 void bind_ruiz(nb::module_&, nb::module_&);
 void bind_kkt_assembly(nb::module_&, nb::module_&);
-void bind_cudss(nb::module_&, nb::module_&);
 void bind_ipm_kernels(nb::module_&, nb::module_&);
 void bind_kkt_system(nb::module_&, nb::module_&);
 void bind_solver(nb::module_&, nb::module_&);
@@ -33,7 +32,6 @@ NB_MODULE(_ext, m) {
   bind_spmv(m, testing);
   bind_ruiz(m, testing);
   bind_kkt_assembly(m, testing);
-  bind_cudss(m, testing);
   bind_ipm_kernels(m, testing);
   bind_kkt_system(m, testing);
   bind_solver(m, testing);

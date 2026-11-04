@@ -1,5 +1,9 @@
 # Multi-block reductions (single-QP performance)
 
+> **Record (2026-11-03).** Profiles below were taken with the cuDSS KKT
+> solver, which was removed on 2026-11-04 (REPORT.md section 14).
+
+
 Branch `perf/multiblock-reductions`, brief `native/docs/briefs/multiblock_reductions.md`.
 Raw results: `native/bench/results/multiblock-20261103/{before,after}` (same
 session, same machine, GPU otherwise idle, runs one at a time).

@@ -24,7 +24,6 @@
 #include "common/views.hpp"
 #include "cupiqp/cupiqp.hpp"
 #include "ipm/kernels/ipm_kernels.hpp"
-#include "linalg/cudss/cudss_solver.hpp"
 #include "linalg/kkt_assembly/kkt_assembly.hpp"
 #include "linalg/kkt_system/kkt_system.hpp"
 #include "linalg/reduced_kkt/reduced_kkt_solver.hpp"
@@ -72,25 +71,20 @@ constexpr int kInfoFloats = 23;
 constexpr int kInfoInts = 5;
 
 // Settings that fix coordinates, buffers or the KKT structure (reference
-// _FROZEN_SETTINGS plus native-only structural fields).
+// _FROZEN_SETTINGS that exist natively).
 struct Frozen {
   int32_t preconditioner_iter;
   bool preconditioner_scale_cost, preconditioner_reuse_on_update, iterative_refinement_always_enabled;
-  bool use_deterministic_mode_for_cudss, custom_spmv;
-  KktBackend kkt_backend;
   bool operator==(const Frozen& o) const {
     return preconditioner_iter == o.preconditioner_iter &&
            preconditioner_scale_cost == o.preconditioner_scale_cost &&
            preconditioner_reuse_on_update == o.preconditioner_reuse_on_update &&
-           iterative_refinement_always_enabled == o.iterative_refinement_always_enabled &&
-           use_deterministic_mode_for_cudss == o.use_deterministic_mode_for_cudss &&
-           custom_spmv == o.custom_spmv && kkt_backend == o.kkt_backend;
+           iterative_refinement_always_enabled == o.iterative_refinement_always_enabled;
   }
 };
 Frozen frozen_of(const Settings& s) {
   return {s.preconditioner_iter, s.preconditioner_scale_cost, s.preconditioner_reuse_on_update,
-          s.iterative_refinement_always_enabled, s.use_deterministic_mode_for_cudss, s.custom_spmv,
-          s.kkt_backend};
+          s.iterative_refinement_always_enabled};
 }
 
 }  // namespace
@@ -99,11 +93,10 @@ class SparseSolverImpl {
  public:
   explicit SparseSolverImpl(cudaStream_t user_stream)
       : stream_(user_stream ? CudaStream::borrow(user_stream) : CudaStream::create(cudaStreamDefault)),
-        loops_(&counters_),
-        cudss_(&counters_) {}
+        loops_(&counters_) {}
 
   ~SparseSolverImpl() {
-    // Finish queued work before members (graphs, cuDSS, buffers) go away; the
+    // Finish queued work before members (graphs, buffers) go away; the
     // stream is declared first so it is destroyed last.
     if (stream_.get()) cudaStreamSynchronize(stream_.get());
   }
@@ -117,15 +110,8 @@ class SparseSolverImpl {
                    "setup() may only be called once per solver instance; create a new solver "
                    "instance to set up a different problem.");
     CUPIQP_REQUIRE(settings.verify(), "Invalid solver settings; check the Settings field values.");
-    if (settings.use_deterministic_mode_for_cudss)
-      throw Error(ErrorCode::Unsupported,
-                  "use_deterministic_mode_for_cudss is not supported: cuDSS 0.8.0.10 "
-                  "DETERMINISTIC_MODE faults intermittently (FEASIBILITY.md 3.7)");
-    if (settings.kkt_backend == KktBackend::Reduced && P.rows > ReducedKktSolver::kMaxN)
-      throw Error(ErrorCode::Unsupported,
-                  "kkt_backend = Reduced supports n <= " + std::to_string(ReducedKktSolver::kMaxN) +
-                      " (dense n x n Schur complement); this problem has n = " + std::to_string(P.rows) +
-                      ". Use kkt_backend = Cudss.");
+    if (P.rows > ReducedKktSolver::kMaxN)
+      throw Error(ErrorCode::Unsupported, ReducedKktSolver::unsupported_n_message(P.rows));
     cudaStream_t s = stream_.get();
 
     data_.init(P, A, G, v, s);
@@ -139,28 +125,11 @@ class SparseSolverImpl {
     allocate_state();
     allocate_inputs(v);
 
-    ops_.init(cusparse_.get(), dv, settings.custom_spmv ? SpmvBackend::Custom : SpmvBackend::Cusparse);
+    ops_.init(dv);
     kkt_.init(data_.P_pattern(), data_.A_pattern(), data_.G_pattern(), dv, s);
-    KktLinearSolver* linear_solver = nullptr;
-    if (settings.kkt_backend == KktBackend::Reduced) {
-      // Dense Schur complement; no cuDSS analysis or warm-up (the reduced
-      // backend allocates everything in init).
-      reduced_.init(kkt_, s);
-      linear_solver = &reduced_;
-    } else {
-      cudss_.init(kkt_.dim(), kkt_.nnz(), kkt_.indptr(), kkt_.indices(), kkt_.values(),
-                  settings.use_deterministic_mode_for_cudss, s);
-      cudss_.analyze(s);
-      // Warm-up FACTORIZATION + SOLVE on the template KKT values: cuDSS allocates
-      // its factor workspace lazily on the first factorization (1.5 MB at the MPC
-      // shape). Doing it here keeps every later update/solve allocation-free and
-      // keeps allocation nodes out of captured graphs (a graph with an unfreed
-      // allocation node cannot be relaunched). The result is discarded.
-      cudss_.factor(s);
-      cudss_.solve(s);
-      linear_solver = &cudss_;
-    }
-    kkt_sys_.init(d_, settings, &kkt_, linear_solver, &ops_, dev_settings_view(), &loops_, s);
+    // Dense Schur complement on the x block; allocates everything in init.
+    reduced_.init(kkt_, s);
+    kkt_sys_.init(d_, settings, &kkt_, &reduced_, &ops_, dev_settings_view(), &loops_, s);
 
     ruiz_.compute_constraints_rhs_inf_norm_unscaled(dv, rhs_norm_.data(), s);
     sync_stream(s, &counters_);
@@ -270,7 +239,7 @@ class SparseSolverImpl {
       if (solve_graph_.valid()) {
         solve_graph_.launch(s, &counters_);
       } else {
-        mode = GraphMode::IterationGraphHostLoop;  // self-test failed: reference mode
+        mode = GraphMode::IterationGraphHostLoop;  // capture failed: per-iteration graphs
       }
     }
     if (mode == GraphMode::IterationGraphHostLoop) {
@@ -402,13 +371,11 @@ class SparseSolverImpl {
   // the stream (first) outlives everything that enqueues on it.
   CudaStream stream_;
   LoopContext loops_;
-  CusparseHandle cusparse_;
   SparseData data_;
   RuizEquilibration ruiz_;
   SparseOperators ops_;
   KktAssembly kkt_;
-  CudssSolver cudss_;
-  ReducedKktSolver reduced_;  // used instead of cudss_ with KktBackend::Reduced
+  ReducedKktSolver reduced_;
   KktSystem kkt_sys_;
   Dims d_;
   bool setup_done_ = false;
@@ -446,7 +413,6 @@ class SparseSolverImpl {
   CudaBuffer<double> in_dev_[kBlocks];
   CudaPinnedBuffer<double> in_host_[kBlocks];
   bool solve_graph_failed_ = false;
-  std::vector<CudaPinnedBuffer<unsigned char>> patched_bytes_;
 
   CudaEvent ev_start_, ev_update_end_, ev_solve_end_;
   bool timing_started_ = false, have_update_ = false, timing_valid_ = false;
@@ -595,19 +561,13 @@ class SparseSolverImpl {
 
   GraphMode effective_mode() const {
     // Reference _cuda_graph_mode: verbose or graphs disabled -> no graph;
-    // iterative refinement puts the cuDSS solve inside a conditional node, which
-    // the sparse backend cannot capture -> no graph.
+    // iterative refinement always on -> no graph (kept from the reference,
+    // whose sparse backend cannot capture its solve inside the refinement's
+    // conditional node).
     if (settings.verbose) return GraphMode::None;
     GraphMode m = settings.graph_mode;
-    if (m == GraphMode::Auto) {
-      // Auto: the whole solve in one CUDA graph for the reduced backend (no cuDSS,
-      // so no memcpy patching is involved); one graph per IPM iteration with the
-      // host-driven loop for cuDSS (its SOLVE cannot run in a conditional node
-      // without the patch, see FEASIBILITY.md 3.3).
-      if (!settings.enable_cuda_graph) m = GraphMode::None;
-      else if (settings.kkt_backend == KktBackend::Reduced) m = GraphMode::SolveGraphDeviceLoop;
-      else m = GraphMode::IterationGraphHostLoop;
-    }
+    if (m == GraphMode::Auto)  // Auto: the whole solve in one CUDA graph
+      m = settings.enable_cuda_graph ? GraphMode::SolveGraphDeviceLoop : GraphMode::None;
     if (m != GraphMode::None && settings.iterative_refinement_always_enabled) return GraphMode::None;
     if (m == GraphMode::SolveGraphDeviceLoop && solve_graph_failed_) return GraphMode::IterationGraphHostLoop;
     return m;
@@ -622,67 +582,22 @@ class SparseSolverImpl {
     iteration_graph_.launch(s, &counters_);
   }
 
-  // EXPERIMENTAL whole-solve graph (FEASIBILITY.md 3.3): captured twice, the
-  // pageable cuDSS memcpy nodes of both captures are re-pointed to pinned
-  // snapshots, and the snapshot bytes must agree; otherwise fall back.
+  // Whole-solve graph: prelude, device-controlled IPM loop (conditional
+  // WHILE node) and finalization in one capture. Every operation of the solve
+  // is capturable (custom kernels only, no allocation after setup). If the
+  // capture or instantiation fails anyway, the solver falls back to the
+  // per-iteration graph for its lifetime.
   void ensure_solve_graph(cudaStream_t s) {
     if (solve_graph_.valid() || solve_graph_failed_) return;
-    int major = 0, minor = 8;
-    if (settings.kkt_backend == KktBackend::Cudss) {  // the cuDSS graph patch is version specific
-      cudssGetProperty(MAJOR_VERSION, &major);
-      cudssGetProperty(MINOR_VERSION, &minor);
-    }
-    if (!(major == 0 && minor == 8)) {
-      solve_graph_failed_ = true;
-      return;
-    }
-    auto body = [this](cudaStream_t st) {
-      run_device_solve(st, [this](cudaStream_t b) { run_one_iteration(b); });
-    };
-    std::vector<CudaPinnedBuffer<unsigned char>> keep_a, keep_b;
-    const int64_t allocs_before = counters_.cudss_device_allocs;
-    if (settings.kkt_backend == KktBackend::Reduced) {
-      // No cuDSS in the graph: one capture, nothing to patch.
-      cudaGraph_t g = capture(s, body, &counters_);
-      if (counters_.cudss_device_allocs != allocs_before) {
-        cudaGraphDestroy(g);
-        solve_graph_failed_ = true;
-        return;
-      }
-      try {
-        solve_graph_.instantiate(g);
-      } catch (const Error&) {
-        solve_graph_failed_ = true;
-      }
-      return;
-    }
-    cudaGraph_t ga = capture(s, body, &counters_);
-    cudaGraph_t gb = capture(s, body, &counters_);
-    if (counters_.cudss_device_allocs != allocs_before) {  // allocation nodes: not relaunchable
-      cudaGraphDestroy(ga);
-      cudaGraphDestroy(gb);
-      solve_graph_failed_ = true;
-      return;
-    }
-    int na = patch_pageable_memcpy(ga, keep_a);
-    int nb = patch_pageable_memcpy(gb, keep_b);
-    bool same = na == nb && keep_a.size() == keep_b.size();
-    for (size_t k = 0; same && k < keep_a.size(); ++k)
-      same = keep_a[k].size() == keep_b[k].size() &&
-             std::memcmp(keep_a[k].data(), keep_b[k].data(), keep_a[k].size()) == 0;
-    cudaGraphDestroy(gb);
-    if (!same) {
-      cudaGraphDestroy(ga);
-      solve_graph_failed_ = true;
-      return;
-    }
     try {
-      solve_graph_.instantiate(ga);
+      cudaGraph_t g = capture(s, [this](cudaStream_t st) {
+        run_device_solve(st, [this](cudaStream_t b) { run_one_iteration(b); });
+      }, &counters_);
+      solve_graph_.instantiate(g);
     } catch (const Error&) {
+      solve_graph_.reset();
       solve_graph_failed_ = true;
-      return;
     }
-    patched_bytes_ = std::move(keep_a);
   }
 
   // ------------------------------------------------------------------ device solve

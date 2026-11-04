@@ -2,8 +2,9 @@
 
 Prints and writes <dir>/ladder.md: per dataset and step, KKT pass counts,
 iterations, end-to-end wall p50/P95, update p50, solve p50, change vs the
-previous step (for the reduced-backend rows: vs the same configuration with
-cuDSS) and vs the reference. gpu_resident mode.
+previous step (or the row named in BASE) and vs the reference. gpu_resident
+mode. Ladders recorded before 2026-11-04 used other row names (cuDSS /
+cuSPARSE rows); summarize those with the script version of their commit.
 Usage: python3 native/bench/tools/summarize_ladder.py <ladder dir>
 """
 import json
@@ -14,18 +15,13 @@ import numpy as np
 
 STEPS = [
     ("1-reference", "Reference (Warp, harness protocol)", "trials.jsonl"),
-    ("2-native-pre-multiblock", "Native default, before multi-block reductions", "checked-trials.jsonl"),
-    ("3-native-default", "+ multi-block reductions (current default)", "checked-trials.jsonl"),
-    ("4-staged", "+ staged preallocated inputs (update_staged)", "checked-trials.jsonl"),
-    ("5-staged-devloop", "+ whole-solve CUDA graph (opt-in)", "checked-trials.jsonl"),
-    ("6-staged-devloop-customspmv", "+ custom SpMV (opt-in)", "checked-trials.jsonl"),
-    ("7-native-default-reduced", "Native default + reduced KKT backend (opt-in)", "checked-trials.jsonl"),
-    ("8-staged-devloop-customspmv-reduced", "staged + whole-solve graph + custom SpMV + reduced KKT backend",
-     "checked-trials.jsonl"),
+    ("2-native-previous", "Previous native binary, its defaults", "checked-trials.jsonl"),
+    ("3-native-default", "Native default (whole-solve graph)", "checked-trials.jsonl"),
+    ("4-native-iteration-graph", "Native, per-iteration graph", "checked-trials.jsonl"),
+    ("5-staged", "Native default + staged preallocated inputs (update_staged)", "checked-trials.jsonl"),
 ]
 # Row compared in "vs previous" (default: the row above).
-BASE = {"7-native-default-reduced": "3-native-default",
-        "8-staged-devloop-customspmv-reduced": "6-staged-devloop-customspmv"}
+BASE = {"5-staged": "3-native-default"}
 
 
 def main():

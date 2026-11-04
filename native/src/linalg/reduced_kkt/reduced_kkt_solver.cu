@@ -39,9 +39,7 @@ void ReducedKktSolver::init(const KktHostMaps& maps, const int32_t* d_indices, d
   const int32_t n = maps.n, p = maps.p, m = maps.m, mm = p + m, dim = n + mm;
   CUPIQP_REQUIRE(n > 0, "ReducedKktSolver::init: n must be positive");
   if (n > kMaxN)
-    throw Error(ErrorCode::Unsupported, "kkt_backend = Reduced supports n <= " + std::to_string(kMaxN) +
-                                            " (dense n x n Schur complement); this problem has n = " +
-                                            std::to_string(n) + ". Use kkt_backend = Cudss.");
+    throw Error(ErrorCode::Unsupported, unsupported_n_message(n));
   const CsrPattern& kp = maps.kkt;
   CUPIQP_REQUIRE(kp.rows == dim && int64_t(kp.indptr.size()) == int64_t(dim) + 1,
                  "ReducedKktSolver::init: KKT pattern shape mismatch");

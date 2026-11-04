@@ -1,7 +1,8 @@
 // M6 kkt_system: condensed KKT system on top of the sparse KKT matrix
 // (reference cupiqp/kkt_systems.py KKTSystem, cupiqp/kkt_systems_kernels.py,
 // cupiqp/kkt_solver.py KKTSolverBase finite check, and the solve() part of
-// cupiqp/sparse/sparse_kkt_solver.py: rhs assembly -> cuDSS solve -> split).
+// cupiqp/sparse/sparse_kkt_solver.py: rhs assembly -> linear solve -> split;
+// the linear solve is ReducedKktSolver instead of the reference sparse LDL^T).
 //
 // INTERFACE CONTRACT (set by the integration owner).
 #pragma once
@@ -26,7 +27,7 @@ class KktSystem {
   // work buffers, m_s_all, m_z_inv_all, w_delta_inv_all, updated_rhs_z_all,
   // factor_status / solve_status (int32, zero), refinement buffers.
   // `kkt` must be initialized and `solver` initialized on kkt's pattern/values
-  // (cuDSS: and analyzed) by the caller; `ops` initialized on the same data. Every
+  // by the caller; `ops` initialized on the same data. Every
   // pointer must outlive this object. `settings` is unused (runtime values are
   // read from dev_settings on the device).
   void init(const Dims& dims, const Settings& settings, KktAssembly* kkt, KktLinearSolver* solver,
@@ -34,17 +35,16 @@ class KktSystem {
             cudaStream_t s);
 
   // Reference update_scalings_and_factor: update_regularizations kernel, KKT
-  // diagonal update (KktAssembly::update_diagonal), backend factorization.
-  // cuDSS: factor_status stays 0 (reference: the cuDSS outcome is never read).
-  // Reduced backend: factor_status is the Cholesky outcome (reference dense
-  // backend semantics), which drives the factor-retry kernel.
+  // diagonal update (KktAssembly::update_diagonal), factorization.
+  // factor_status is the Cholesky outcome (reference dense backend
+  // semantics), which drives the factor-retry kernel.
   void update_scalings_and_factor(const SparseDataView<double>& data, const ScalingView<double>& scaling,
                                   bool iterative_refinement, const double* rho, const double* delta,
                                   const VariablesView<double>& vars, cudaStream_t s);
 
   // Reference KKTSystem.solve (forward, transpose = false): eliminate slacks
-  // and duals, assemble [rhs_x_bar | rhs_y | rhs_z_bar] into the cuDSS rhs,
-  // cuDSS solve, split into lhs.x / lhs.y / work_z, write solve_status
+  // and duals, assemble [rhs_x_bar | rhs_y | rhs_z_bar] into the solver rhs,
+  // linear solve, split into lhs.x / lhs.y / work_z, write solve_status
   // (finite check of that condensed solution, as the reference backend does),
   // optional iterative refinement (each correction solve rewrites
   // solve_status), recover duals and slacks. B == 1: rhs.y, lhs.x, lhs.y are
@@ -52,7 +52,7 @@ class KktSystem {
   void solve(const SparseDataView<double>& data, const ScalingView<double>& scaling,
              const VariablesView<double>& rhs, const VariablesView<double>& lhs, cudaStream_t s);
 
-  // (B,), stable address: the backend's status when it reports one, else a
+  // (B,), stable address: the solver's status when it reports one, else a
   // buffer that stays zero.
   const int32_t* factor_status() const {
     return solver_ && solver_->factor_status() ? solver_->factor_status() : factor_status_.data();
@@ -61,7 +61,7 @@ class KktSystem {
 
  private:
   // Reference KKTSolverBase.solve of the sparse backend: fused rhs assembly
-  // into the cuDSS rhs, cuDSS solve, fused split, finite check.
+  // into the solver rhs, linear solve, fused split, finite check.
   void kkt_solve(const double* rhs_x, const double* rhs_y, const double* rhs_z, double* lhs_x, double* lhs_y,
                  double* lhs_z, cudaStream_t s);
   void prepare_rhs(const ScalingView<double>& scaling, const VariablesView<double>& rhs, cudaStream_t s);

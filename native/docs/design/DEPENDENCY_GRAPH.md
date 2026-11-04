@@ -1,20 +1,27 @@
 # Module dependency graph and work plan
 
+Current graph (since 2026-11-04): M2 is the module's own CSR/CSC SpMV
+kernels, and M5 is `reduced_kkt` (dense Schur-complement KKT solver,
+`src/linalg/reduced_kkt`), which replaced the cuDSS wrapper. M5 depends on
+M4 (it reads the assembled KKT values through index maps). The work plan
+below is the original wave-1 plan with M5 = cuDSS, kept as a record.
+
 ```mermaid
 graph TD
   M0[M0 core: public API, views, buffers, errors, reductions, graph utils, build, test infra]
   M1[M1 data: CSR validation, value storage, finite masks]
-  M2[M2 spmv: cuSPARSE SpMV operators]
+  M2[M2 spmv: custom CSR / CSC SpMV operators]
   M3[M3 ruiz: sparse Ruiz equilibration]
   M4[M4 kkt_assembly: KKT pattern, slot maps, scatter, diagonal update]
-  M5[M5 cudss: direct solver wrapper, counting allocator, graph patch]
+  M5[M5 reduced_kkt: Schur-complement assembly, Cholesky, solves; was cudss until 2026-11-04]
   M6[M6 kkt_system: regularization, condensation, recovery, finite check]
   M7[M7 ipm_kernels: IPM step, residual, termination kernels]
   M8[M8 solver: setup/update/solve orchestration, graph modes]
   M9[M9 binding: nanobind module + Python shim]
   M10[M10 bench: native benchmarks + harness backend]
 
-  M0 --> M1 & M2 & M3 & M4 & M5 & M7
+  M0 --> M1 & M2 & M3 & M4 & M7
+  M4 --> M5
   M1 --> M3
   M1 --> M4
   M2 --> M6

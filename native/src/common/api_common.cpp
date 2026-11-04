@@ -1,6 +1,4 @@
 // Public API pieces that do not depend on the solver implementation.
-#include <cudss.h>
-
 #include <limits>
 #include <string>
 
@@ -31,8 +29,7 @@ bool Settings::verify() const {
          iterative_refinement_eps_rel >= 0 && iterative_refinement_max_iter >= 0 &&
          iterative_refinement_min_improvement_rate >= 1.0 &&
          iterative_refinement_static_regularization_eps > 0 &&
-         iterative_refinement_static_regularization_rel >= 0 &&
-         (kkt_backend == KktBackend::Cudss || kkt_backend == KktBackend::Reduced);
+         iterative_refinement_static_regularization_rel >= 0;
 }
 
 CsrPattern CsrPattern::from_int64(int64_t rows, int64_t cols, const int64_t* indptr,
@@ -59,13 +56,6 @@ CsrPattern CsrPattern::from_int64(int64_t rows, int64_t cols, const int64_t* ind
   return out;
 }
 
-std::string version_string() {
-  int major = 0, minor = 0, patch = 0;
-  cudssGetProperty(MAJOR_VERSION, &major);
-  cudssGetProperty(MINOR_VERSION, &minor);
-  cudssGetProperty(PATCH_LEVEL, &patch);
-  return "0.1.0 (cuDSS " + std::to_string(major) + "." + std::to_string(minor) + "." +
-         std::to_string(patch) + ")";
-}
+std::string version_string() { return "0.1.0"; }
 
 }  // namespace cupiqp

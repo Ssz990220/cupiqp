@@ -8,8 +8,8 @@ from . import _ext
 from ._ext import PIQP_INF, version  # noqa: F401
 
 try:  # populated by the M8/M9 integration
-    from ._solver import GraphMode, KktBackend, SparseSolver, Settings, Status  # noqa: F401
+    from ._solver import GraphMode, SparseSolver, Settings, Status  # noqa: F401
 except ImportError:  # pragma: no cover - before integration
     pass
 
-__all__ = ["SparseSolver", "Settings", "Status", "GraphMode", "KktBackend", "PIQP_INF", "version"]
+__all__ = ["SparseSolver", "Settings", "Status", "GraphMode", "PIQP_INF", "version"]

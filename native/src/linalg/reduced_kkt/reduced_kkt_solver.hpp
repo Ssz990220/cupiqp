@@ -1,5 +1,4 @@
-// Reduced (Schur-complement) KKT backend: an opt-in replacement of cuDSS
-// inside KktSystem (Settings::kkt_backend = KktBackend::Reduced).
+// Reduced (Schur-complement) KKT solver: the linear solver of KktSystem.
 //
 // The condensed KKT matrix of KktAssembly,
 //   K = [[P + diag(x_reg), A^T, G^T], [A, -delta I, 0], [G, 0, -diag(z_reg)]]
@@ -9,7 +8,7 @@
 //   H  = P + diag(x_reg) + M^T diag(w) M             (dense n x n, SPD)
 //   H dx = r_x + M^T (w * r_m),   d_m = w * (M dx - r_m).
 // Everything is read straight from the K values buffer through index maps
-// built at init, so the backend sees exactly the matrix cuDSS would factor.
+// built at init, so the solver sees exactly the assembled KKT matrix.
 // H is assembled by a deterministic sparse kernel and factored by a blocked
 // right-looking Cholesky (custom kernels, no cuBLAS / cuSOLVER); solves use
 // a custom one-block triangular solve. factor() writes the Cholesky outcome
@@ -21,6 +20,7 @@
 
 #include <cuda_runtime_api.h>
 
+#include <string>
 #include <vector>
 
 #include "common/buffer.hpp"
@@ -35,6 +35,12 @@ class ReducedKktSolver : public KktLinearSolver {
   // Largest n accepted (H is dense n x n; see docs/modules/reduced_kkt_backend.md
   // for the measurements behind the limit).
   static constexpr int32_t kMaxN = 2048;
+  // Message of the Unsupported error for n > kMaxN (also thrown by the solver's setup()).
+  static std::string unsupported_n_message(int64_t n) {
+    return "cuPIQP native supports n <= " + std::to_string(kMaxN) +
+           " (the KKT system is solved through a dense n x n Schur complement); this problem has n = " +
+           std::to_string(n) + ".";
+  }
 
   // Build the index maps from the K pattern / slot maps of `kkt` (setup
   // time), allocate H, the weights, rhs / sol and the status. `kkt` must be

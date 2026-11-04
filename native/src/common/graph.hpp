@@ -9,10 +9,9 @@
 //    body while it is nonzero.
 // Under capture the body is captured on the same stream: the enclosing
 // capture is suspended (ended) around the body and resumed after the
-// conditional node, so streams that joined the enclosing capture (the cuDSS
-// execution stream) are free to join the body capture. Every function called
-// from a body must still take the stream as a parameter and bind library
-// handles (cudssSetStream, cusparseSetStream) to it on every call.
+// conditional node, so streams that joined the enclosing capture through
+// events are free to join the body capture. Every function called from a body
+// must take the stream as a parameter and enqueue only on it.
 #pragma once
 
 #include <cuda_runtime_api.h>
@@ -36,9 +35,8 @@ class GraphExec {
   GraphExec(GraphExec&& o) noexcept : graph_(o.graph_), exec_(o.exec_) { o.graph_ = nullptr; o.exec_ = nullptr; }
   GraphExec& operator=(GraphExec&& o) noexcept;
 
-  // Take ownership of `graph`, optionally edit it with `patch` before
-  // instantiation (see M5 patch_pageable_memcpy), then instantiate.
-  void instantiate(cudaGraph_t graph, const std::function<void(cudaGraph_t)>& patch = {});
+  // Take ownership of `graph` and instantiate it.
+  void instantiate(cudaGraph_t graph);
   void launch(cudaStream_t s, Counters* counters);
   bool valid() const { return exec_ != nullptr; }
   cudaGraph_t graph() const { return graph_; }

@@ -3,7 +3,7 @@
 # CUDA graph nodes traced individually, plus the per-iteration breakdown.
 # Run from the repository root:
 #   bash native/bench/tools/profile_iteration.sh <out dir> [mpc|trajopt] [iteration|device|none] [tag suffix] [extra flags]
-# Extra flags go to profile_update_solve.py (e.g. --kkt-backend reduced --custom-spmv).
+# Extra flags go to profile_update_solve.py (e.g. --eps 1e-6).
 set -euo pipefail
 OUT=${1:?usage: profile_iteration.sh <out dir> [mpc|trajopt] [graph mode]}
 DATASET=${2:-mpc}

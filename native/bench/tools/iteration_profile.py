@@ -7,7 +7,9 @@ Input: the cuda_gpu_trace CSV of a run recorded with
 update_continue_flag kernel that ends every IPM iteration.
 
 Prints, per IPM iteration (median over iterations):
-  * GPU busy time by category (cuDSS factor / solve, SpMV, IPM kernels, ...),
+  * GPU busy time by category (KKT assembly / Cholesky / solve, SpMV, IPM
+    kernels, ...; the cuDSS and cuSPARSE categories classify traces recorded
+    before those libraries were removed on 2026-11-04),
   * graph-internal GPU idle and the host round trip (continue-flag D2H, host
     sync and the next iteration-graph launch),
   * the largest idle gaps (which node follows which),

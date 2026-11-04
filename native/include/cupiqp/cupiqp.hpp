@@ -2,7 +2,11 @@
 //
 // Solves   min 1/2 x'Px + c'x   s.t.  A x = b,  h_l <= G x <= h_u,  x_l <= x <= x_u
 // with the proximal interior-point method of the pinned Python/Warp cuPIQP
-// (d538dda), on the GPU, without any Python dependency. See native/docs/DESIGN.md.
+// (d538dda), on the GPU, without any Python dependency. The condensed KKT
+// system is solved by a dense Schur complement on the x block (custom
+// Cholesky), so the number of variables n is limited to 2048; setup() rejects
+// larger problems with ErrorCode::Unsupported. Only the CUDA runtime is linked
+// (no sparse or dense math library). See native/docs/design/DESIGN.md.
 #pragma once
 
 #include <cuda_runtime_api.h>
@@ -24,11 +28,9 @@ inline constexpr double PIQP_INF = 1e20;
 // ---------------------------------------------------------------------------
 enum class ErrorCode : int32_t {
   InvalidArgument = 1,  // bad pattern, shape, missing block, wrong call order
-  Unsupported = 2,      // feature outside milestone 1 (batching, FP32, gradients, ...)
+  Unsupported = 2,      // outside milestone 1 (batching, FP32, gradients, n > 2048, ...)
   Cuda = 3,             // CUDA runtime error
-  Cusparse = 4,         // cuSPARSE error
-  Cudss = 5,            // cuDSS error
-  Internal = 6          // broken invariant
+  Internal = 6          // broken invariant (codes 4 and 5 belonged to removed math libraries)
 };
 
 class Error : public std::runtime_error {
@@ -108,24 +110,18 @@ enum class Status : int32_t {
 const char* status_name(Status s);  // "CUPIQP_SOLVED", ... (reference names)
 
 enum class GraphMode : int32_t {
-  Auto = 0,                    // enable_cuda_graph: SolveGraphDeviceLoop with kkt_backend = Reduced,
-                               // IterationGraphHostLoop with Cudss; otherwise None
+  Auto = 0,                    // enable_cuda_graph: SolveGraphDeviceLoop; otherwise None
   None = 1,                    // plain launches, host-driven loops
-  IterationGraphHostLoop = 2,  // one IPM iteration per CUDA graph (reference default)
-  SolveGraphDeviceLoop = 3     // whole solve in one graph; with Cudss it patches cuDSS memcpy
-                               // nodes (FEASIBILITY.md 3.3, opt-in); default for Reduced
+  IterationGraphHostLoop = 2,  // one IPM iteration per CUDA graph, host-driven loop
+                               // (the reference default)
+  SolveGraphDeviceLoop = 3     // whole solve in one graph with a device-controlled loop
 };
 
-// Linear-solver backend of the condensed KKT system (native extension).
-enum class KktBackend : int32_t {
-  Cudss = 0,   // sparse LDL^T with cuDSS (reference behavior, default)
-  Reduced = 1  // dense Schur complement on the x block, custom Cholesky; opt-in.
-               // Requires n <= 2048 (rejected at setup otherwise). Reports
-               // Cholesky failures to the factor-retry logic (reference dense
-               // backend semantics).
-};
-
-// Same fields, names and FP64 defaults as cupiqp.Settings.for_dtype(float64).
+// Same fields, names and FP64 defaults as cupiqp.Settings.for_dtype(float64),
+// except the reference's deterministic-mode switch of its sparse direct
+// solver: the KKT solve and the sparse products here always use fixed
+// summation orders. The Python shim accepts and ignores that field
+// (docs/design/DEVIATIONS.md).
 struct Settings {
   double rho_init = 1e-6;
   double delta_init = 1e-4;
@@ -152,15 +148,6 @@ struct Settings {
   double iterative_refinement_min_improvement_rate = 5.0;
   double iterative_refinement_static_regularization_eps = 1e-8;
   double iterative_refinement_static_regularization_rel = 4.930380657631324e-32;
-  // Rejected (Unsupported): cuDSS 0.8.0.10 DETERMINISTIC_MODE faults
-  // intermittently (FEASIBILITY.md 3.7).
-  bool use_deterministic_mode_for_cudss = false;
-  // Native extension (not in the reference): use the deterministic custom
-  // CSR/CSC kernels instead of cuSPARSE for the residual products. Results
-  // agree with cuSPARSE within 1e-14 relative; off by default for parity.
-  bool custom_spmv = false;
-  // Native extension: KKT linear-solver backend, frozen after setup().
-  KktBackend kkt_backend = KktBackend::Cudss;
   bool enable_cuda_graph = true;
   bool verbose = false;          // only honoured with GraphMode::None
   bool compute_timings = false;  // CUDA-event phase timers (adds no host sync)
@@ -202,11 +189,6 @@ struct Counters {
   int64_t host_syncs = 0;           // stream/device synchronizations issued by the solver
   int64_t graph_launches = 0;       // cudaGraphLaunch calls
   int64_t graph_captures = 0;       // stream captures performed
-  int64_t cudss_device_allocs = 0;  // allocations requested by cuDSS (counting handler)
-  int64_t cudss_device_frees = 0;
-  int64_t cudss_analysis_calls = 0;
-  int64_t cudss_factor_calls = 0;   // host-side cudssExecute(FACTORIZATION) calls (incl. captures)
-  int64_t cudss_solve_calls = 0;
   int64_t updates = 0;
   int64_t solves = 0;
 };
@@ -245,7 +227,8 @@ class SparseSolver {
   const Settings& settings() const;
 
   // Fix the structure (patterns, present blocks and bound sides), allocate all
-  // memory, load and scale the values, run the symbolic analysis. Blocks once.
+  // memory, load and scale the values, build the KKT index maps. Blocks once.
+  // Throws Unsupported when n > 2048 (dense Schur complement limit).
   // P stores the full symmetric matrix (both triangles); P and c are required;
   // A requires b and vice versa; G requires at least one of h_l / h_u.
   void setup(const CsrPattern& P, const ValuesView& values, const CsrPattern* A = nullptr,
@@ -267,8 +250,11 @@ class SparseSolver {
   InputBuffers host_input_buffers();
   void update_staged(const UpdateBlocks& blocks = UpdateBlocks::all(), bool from_host = false);
 
-  // Run the solver on the current data. Enqueued on stream(); in the default
-  // graph mode it waits on one 8-byte loop-state copy per IPM iteration.
+  // Run the solver on the current data. Enqueued on stream(). With
+  // GraphMode::SolveGraphDeviceLoop (what Auto selects unless graphs are off,
+  // verbose is set or iterative refinement is always on) it is one graph
+  // launch with no host wait; the other modes wait on one loop-state copy per
+  // IPM iteration.
   void solve();
 
   ResultView result() const;
@@ -290,7 +276,7 @@ class SparseSolver {
   std::unique_ptr<SparseSolverImpl> impl_;
 };
 
-// Library version and the linked cuDSS version, e.g. "0.1.0 (cuDSS 0.8.0)".
+// Library version, e.g. "0.1.0".
 std::string version_string();
 
 }  // namespace cupiqp

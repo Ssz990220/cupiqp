@@ -1,5 +1,15 @@
 # M6 kkt_system: hand-off note
 
+> **Status 2026-11-04 (cuDSS removed).** The linear solver behind
+> `KktLinearSolver` is always `ReducedKktSolver` (`linalg/reduced_kkt`); its
+> Cholesky outcome is `factor_status` and drives the factor-retry kernel.
+> `SparseOperators` is initialized without a cuSPARSE handle. The class tests
+> (`test_kkt_system_class`) run the reduced solver only: full-system residual
+> (seeds 1, 2, 3, 11, 12), with iterative refinement (seeds 4, 5), captured
+> vs eager bitwise, failed-factorization reporting and the NaN solve status.
+> Mentions of cuDSS below are the original hand-off record.
+
+
 Branch `task/kkt_system`. Reference (pinned): `cupiqp/kkt_systems.py` `KKTSystem`
 (forward direction), `cupiqp/kkt_systems_kernels.py`, `cupiqp/kkt_solver.py`
 (`_write_solve_status`), `cupiqp/solver_kernels.py` (`create_solution_finite_kernel`),

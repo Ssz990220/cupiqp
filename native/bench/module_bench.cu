@@ -3,9 +3,9 @@
 // Isolates the pieces of one update and one IPM iteration with the internal
 // module APIs (the same objects the solver uses, built in the solver's setup
 // order): numeric value update, Ruiz scaling (fresh 10 passes), KKT scatter,
-// KKT diagonal update + cuDSS factorization, cuDSS factorization alone, cuDSS
-// solve alone, the condensed KKT solve, the five SpMV products (cuSPARSE and
-// custom backends), and the public update() / solve(). Every operation is timed
+// KKT diagonal update + factorization, the reduced KKT factorization alone,
+// its solve alone, the condensed KKT solve, the five SpMV products, and the
+// public update() / solve(). Every operation is timed
 // eagerly (CUDA events around each call, plus host enqueue time) and, where it
 // is capturable, as a replayed CUDA graph. Median and P95 over --reps calls.
 //
@@ -15,8 +15,6 @@
 #include <time.h>
 
 #include <algorithm>
-#include <cmath>
-#include <random>
 #include <cstdio>
 #include <fstream>
 #include <functional>
@@ -28,9 +26,9 @@
 #include "common/handles.hpp"
 #include "common/views.hpp"
 #include "cupiqp/cupiqp.hpp"
-#include "linalg/cudss/cudss_solver.hpp"
 #include "linalg/kkt_assembly/kkt_assembly.hpp"
 #include "linalg/kkt_system/kkt_system.hpp"
+#include "linalg/reduced_kkt/reduced_kkt_solver.hpp"
 #include "linalg/spmv/spmv.hpp"
 #include "problem/data/sparse_data.hpp"
 #include "problem/ruiz/ruiz.hpp"
@@ -105,17 +103,12 @@ int main(int argc, char** argv) {
     RuizEquilibration ruiz;
     ruiz.init(dv, s);
     ruiz.scale_data(dv, false, 10, s);
-    CusparseHandle cusparse;
-    SparseOperators ops_cusparse, ops_custom;
-    ops_cusparse.init(cusparse.get(), dv, SpmvBackend::Cusparse);
-    ops_custom.init(cusparse.get(), dv, SpmvBackend::Custom);
+    SparseOperators ops;
+    ops.init(dv);
     KktAssembly kkt;
     kkt.init(data.P_pattern(), data.A_pattern(), data.G_pattern(), dv, s);
-    CudssSolver cudss(&counters);
-    cudss.init(kkt.dim(), kkt.nnz(), kkt.indptr(), kkt.indices(), kkt.values(), false, s);
-    cudss.analyze(s);
-    cudss.factor(s);
-    cudss.solve(s);
+    ReducedKktSolver reduced;
+    reduced.init(kkt, s);
 
     // Device settings (reference DeviceSettings values) and solver-like state.
     CudaBuffer<double> sf(SF_COUNT);
@@ -129,7 +122,7 @@ int main(int argc, char** argv) {
     sf.copy_from_host(hf, SF_COUNT, s);
     si.copy_from_host(hi, SI_COUNT, s);
     KktSystem kkt_sys;
-    kkt_sys.init(d, settings, &kkt, &cudss, &ops_cusparse, {sf.data(), si.data()}, &loops, s);
+    kkt_sys.init(d, settings, &kkt, &reduced, &ops, {sf.data(), si.data()}, &loops, s);
 
     CudaBuffer<double> vp(size_t(d.num_primal())), vd(size_t(d.num_dual())), rp(vp.size()), rd(vd.size()),
         lp(vp.size()), ld(vd.size()), rho(1), delta(1), xbuf(d.n), ybuf(std::max(d.n, d.m));
@@ -209,72 +202,15 @@ int main(int argc, char** argv) {
               kkt_sys.update_scalings_and_factor(dv, ruiz.view(), false, rho.data(), delta.data(), vars, st);
             },
             true);
-    measure("iteration: cuDSS FACTORIZATION only", [&](cudaStream_t st) { cudss.factor(st); }, true);
-    measure("iteration: cuDSS REFACTORIZATION only", [&](cudaStream_t st) { cudss.refactor(st); }, true);
-    measure("iteration: cuDSS SOLVE only", [&](cudaStream_t st) { cudss.solve(st); }, true);
-    measure("iteration: condensed KKT solve (elim + SOLVE + recover)",
+    measure("iteration: reduced KKT factor only", [&](cudaStream_t st) { reduced.factor(st); }, true);
+    measure("iteration: reduced KKT solve only", [&](cudaStream_t st) { reduced.solve(st); }, true);
+    measure("iteration: condensed KKT solve (elim + solve + recover)",
             [&](cudaStream_t st) { kkt_sys.solve(dv, ruiz.view(), rhs, lhs, st); }, true);
-    for (int b = 0; b < 2; ++b) {
-      SparseOperators& o = b ? ops_custom : ops_cusparse;
-      std::string tag = b ? "custom" : "cusparse";
-      measure("spmv " + tag + ": P x", [&](cudaStream_t st) { o.P(st, 1.0, xbuf.data(), ybuf.data()); }, true);
-      measure("spmv " + tag + ": A x", [&](cudaStream_t st) { o.A(st, 1.0, xbuf.data(), ybuf.data()); }, true);
-      measure("spmv " + tag + ": A^T y", [&](cudaStream_t st) { o.AT(st, 1.0, ybuf.data(), xbuf.data()); }, true);
-      measure("spmv " + tag + ": G x", [&](cudaStream_t st) { o.G(st, 1.0, xbuf.data(), ybuf.data()); }, true);
-      measure("spmv " + tag + ": G^T z", [&](cudaStream_t st) { o.GT(st, 1.0, ybuf.data(), xbuf.data()); }, true);
-    }
-
-    // REFACTORIZATION accuracy probe: factor at one IPM-like state, then move
-    // the slack / dual iterate (z, s spread over many decades, as late in an
-    // IPM solve) and compare SOLVE after FACTORIZATION vs after REFACTORIZATION.
-    {
-      std::vector<double> h_s(d.num_ineq()), h_z(d.num_ineq()), sol_f(kkt.dim()), sol_r(kkt.dim());
-      std::vector<double> rhs_h(kkt.dim());
-      CudaBuffer<double> kkt_b(kkt.nnz());
-      std::mt19937 gen(3);
-      std::uniform_real_distribution<double> U(-1, 1);
-      for (auto& v : rhs_h) v = U(gen);
-      auto set_state = [&](double spread) {
-        for (int i = 0; i < d.num_ineq(); ++i) {
-          h_s[i] = std::pow(10.0, spread * U(gen));
-          h_z[i] = std::pow(10.0, spread * U(gen));
-        }
-        CUPIQP_CUDA_CHECK(cudaMemcpyAsync(vp.data() + d.n, h_s.data(), sizeof(double) * d.num_ineq(), cudaMemcpyHostToDevice, s));
-        CUPIQP_CUDA_CHECK(cudaMemcpyAsync(vd.data() + d.p, h_z.data(), sizeof(double) * d.num_ineq(), cudaMemcpyHostToDevice, s));
-      };
-      auto solve_into = [&](std::vector<double>& out) {
-        CUPIQP_CUDA_CHECK(cudaMemcpyAsync(cudss.rhs(), rhs_h.data(), sizeof(double) * kkt.dim(), cudaMemcpyHostToDevice, s));
-        cudss.solve(s);
-        CUPIQP_CUDA_CHECK(cudaMemcpyAsync(out.data(), cudss.sol(), sizeof(double) * kkt.dim(), cudaMemcpyDeviceToHost, s));
-        CUPIQP_CUDA_CHECK(cudaStreamSynchronize(s));
-      };
-      std::fprintf(stderr, "REFACTORIZATION accuracy probe (factor at A, refactor at B vs full factor at B):\n");
-      for (double spread : {0.5, 2.0, 4.0, 8.0}) {
-        // B: full FACTORIZATION on B's values -> reference solution; keep B's KKT values.
-        set_state(spread);
-        kkt_sys.update_scalings_and_factor(dv, ruiz.view(), false, rho.data(), delta.data(), vars, s);
-        solve_into(sol_f);
-        CUPIQP_CUDA_CHECK(cudaMemcpyAsync(kkt_b.data(), kkt.values(), sizeof(double) * kkt.nnz(),
-                                          cudaMemcpyDeviceToDevice, s));
-        // A: full FACTORIZATION on a different iterate (pivots chosen on A's values).
-        set_state(0.5);
-        kkt_sys.update_scalings_and_factor(dv, ruiz.view(), false, rho.data(), delta.data(), vars, s);
-        // Put B's values back into the KKT matrix and only REFACTORIZE (reuses A's data).
-        CUPIQP_CUDA_CHECK(cudaMemcpyAsync(kkt.values(), kkt_b.data(), sizeof(double) * kkt.nnz(),
-                                          cudaMemcpyDeviceToDevice, s));
-        cudss.refactor(s);
-        solve_into(sol_r);
-        double num = 0, den = 0;
-        bool finite = true;
-        for (int i = 0; i < kkt.dim(); ++i) {
-          finite = finite && std::isfinite(sol_r[i]);
-          num = std::max(num, std::fabs(sol_r[i] - sol_f[i]));
-          den = std::max(den, std::fabs(sol_f[i]));
-        }
-        std::fprintf(stderr, "  s, z spread 1e+-%.1f decades: finite=%d  max|x_refac - x_fac| / max|x_fac| = %.3e\n",
-                     spread, finite ? 1 : 0, num / den);
-      }
-    }
+    measure("spmv: P x", [&](cudaStream_t st) { ops.P(st, 1.0, xbuf.data(), ybuf.data()); }, true);
+    measure("spmv: A x", [&](cudaStream_t st) { ops.A(st, 1.0, xbuf.data(), ybuf.data()); }, true);
+    measure("spmv: A^T y", [&](cudaStream_t st) { ops.AT(st, 1.0, ybuf.data(), xbuf.data()); }, true);
+    measure("spmv: G x", [&](cudaStream_t st) { ops.G(st, 1.0, xbuf.data(), ybuf.data()); }, true);
+    measure("spmv: G^T z", [&](cudaStream_t st) { ops.GT(st, 1.0, ybuf.data(), xbuf.data()); }, true);
 
     // Public API: one update (all values) and one solve, default graph mode.
     SparseSolver solver(s);
@@ -284,7 +220,7 @@ int main(int argc, char** argv) {
     solver.solve();
     measure("public: SparseSolver::update (all values)", [&](cudaStream_t) { solver.update(view_of(flip ^= 1)); },
             false);
-    measure("public: SparseSolver::solve (iteration graphs)", [&](cudaStream_t) { solver.solve(); }, false);
+    measure("public: SparseSolver::solve (default graph mode)", [&](cudaStream_t) { solver.solve(); }, false);
 
     if (!out_path.empty()) {
       std::ofstream f(out_path);

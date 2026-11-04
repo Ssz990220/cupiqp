@@ -1,8 +1,7 @@
 // nanobind entry points of module spmv (owned by that module).
 //
 // _testing.SpMVOp: one SpMV over caller-owned device CSR arrays (addresses as
-// ints), callable eagerly or through a captured CUDA graph; custom=True
-// selects SpmvBackend::Custom.
+// ints), callable eagerly or through a captured CUDA graph.
 // _testing.SparseOps: SparseOperators over caller-owned P / A / G arrays.
 // All calls enqueue on the given stream (default 0) and synchronize it, so
 // results are readable from Python on return.
@@ -61,12 +60,10 @@ void run_on(cudaStream_t s, bool graph, const std::function<void(cudaStream_t)>&
 }
 
 struct SpMVOp {
-  CusparseHandle handle;
   SpMV op;
   SpMVOp(int32_t rows, int32_t cols, int32_t nnz, uintptr_t indptr, uintptr_t indices, uintptr_t values,
-         bool transpose, bool custom) {
-    op.init(handle.get(), make_view(rows, cols, nnz, indptr, indices, values), transpose,
-            custom ? SpmvBackend::Custom : SpmvBackend::Cusparse);
+         bool transpose) {
+    op.init(make_view(rows, cols, nnz, indptr, indices, values), transpose);
   }
   void call(uintptr_t x, uintptr_t y, double alpha, double beta, uintptr_t stream, bool graph) {
     run_on(as_ptr<CUstream_st>(stream), graph,
@@ -75,11 +72,10 @@ struct SpMVOp {
 };
 
 struct SparseOps {
-  CusparseHandle handle;
   SparseOperators ops;
   SparseOps(int32_t n, int32_t p, int32_t m, int32_t nnz_P, uintptr_t P_indptr, uintptr_t P_indices,
             uintptr_t P_values, int32_t nnz_A, uintptr_t A_indptr, uintptr_t A_indices, uintptr_t A_values,
-            int32_t nnz_G, uintptr_t G_indptr, uintptr_t G_indices, uintptr_t G_values, bool custom) {
+            int32_t nnz_G, uintptr_t G_indptr, uintptr_t G_indices, uintptr_t G_values) {
     SparseDataView<double> d;
     d.dims.n = n;
     d.dims.p = p;
@@ -90,7 +86,7 @@ struct SparseOps {
     d.P = make_view(n, n, nnz_P, P_indptr, P_indices, P_values);
     d.A = make_view(p, n, nnz_A, A_indptr, A_indices, A_values);
     d.G = make_view(m, n, nnz_G, G_indptr, G_indices, G_values);
-    ops.init(handle.get(), d, custom ? SpmvBackend::Custom : SpmvBackend::Cusparse);
+    ops.init(d);
   }
   void apply(const std::string& which, double alpha, uintptr_t x, uintptr_t y, uintptr_t stream, bool graph) {
     auto xp = as_ptr<const double>(x);
@@ -111,21 +107,19 @@ struct SparseOps {
 void bind_spmv(nb::module_& m, nb::module_& testing) {
   (void)m;
   nb::class_<SpMVOp>(testing, "SpMVOp")
-      .def(nb::init<int32_t, int32_t, int32_t, uintptr_t, uintptr_t, uintptr_t, bool, bool>(), nb::arg("rows"),
+      .def(nb::init<int32_t, int32_t, int32_t, uintptr_t, uintptr_t, uintptr_t, bool>(), nb::arg("rows"),
            nb::arg("cols"), nb::arg("nnz"), nb::arg("indptr"), nb::arg("indices"), nb::arg("values"),
-           nb::arg("transpose") = false, nb::arg("custom") = false)
+           nb::arg("transpose") = false)
       .def("__call__", &SpMVOp::call, nb::arg("x"), nb::arg("y"), nb::arg("alpha") = 1.0,
            nb::arg("beta") = 0.0, nb::arg("stream") = 0, nb::arg("graph") = false)
-      .def_prop_ro("uses_cusparse", [](const SpMVOp& o) { return o.op.uses_cusparse(); })
-      .def_prop_ro("uses_custom", [](const SpMVOp& o) { return o.op.uses_custom(); })
+      .def_prop_ro("computes_product", [](const SpMVOp& o) { return o.op.computes_product(); })
       .def_prop_ro("lanes", [](const SpMVOp& o) { return o.op.lanes(); });
   nb::class_<SparseOps>(testing, "SparseOps")
       .def(nb::init<int32_t, int32_t, int32_t, int32_t, uintptr_t, uintptr_t, uintptr_t, int32_t, uintptr_t,
-                    uintptr_t, uintptr_t, int32_t, uintptr_t, uintptr_t, uintptr_t, bool>(),
+                    uintptr_t, uintptr_t, int32_t, uintptr_t, uintptr_t, uintptr_t>(),
            nb::arg("n"), nb::arg("p"), nb::arg("m"), nb::arg("nnz_P"), nb::arg("P_indptr"), nb::arg("P_indices"),
            nb::arg("P_values"), nb::arg("nnz_A"), nb::arg("A_indptr"), nb::arg("A_indices"), nb::arg("A_values"),
-           nb::arg("nnz_G"), nb::arg("G_indptr"), nb::arg("G_indices"), nb::arg("G_values"),
-           nb::arg("custom") = false)
+           nb::arg("nnz_G"), nb::arg("G_indptr"), nb::arg("G_indices"), nb::arg("G_values"))
       .def("apply", &SparseOps::apply, nb::arg("which"), nb::arg("alpha"), nb::arg("x"), nb::arg("y"),
            nb::arg("stream") = 0, nb::arg("graph") = false);
 }

@@ -1,5 +1,13 @@
 # Native CUDA C++ port of cuPIQP: feasibility assessment
 
+Historical document (design phase, 2026-11-03). Since 2026-11-04 the native
+library no longer uses cuDSS or cuSPARSE (REPORT.md section 14): the KKT
+system is solved by the dense Schur-complement solver (n <= 2048) and the
+SpMV by custom kernels, so the cuDSS findings below (graph patch, warm-up,
+deterministic mode) no longer apply to the build. The PoC source
+`native/poc/cudss_graph_poc.cu` was deleted with it and stays in git history
+(commit `dcadf6a`); its log is kept in `native/poc/results/`.
+
 Pinned reference: `PREDICT-EPFL/cupiqp` @ `d538dda8c93a76a16fcddc2f98c24c98133a7937`
 (branch `native-cuda-port` starts there). Milestone 1 scope: sparse backend, FP64,
 batch size 1, fixed sparsity, repeated numeric updates.

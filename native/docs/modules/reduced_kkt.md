@@ -1,5 +1,12 @@
 # Reduced (Schur-complement) KKT solve vs cuDSS: feasibility probe
 
+> **Historical (feasibility probe, 2026-11-03).** The probe
+> (`bench/reduced_kkt_probe.cu`, which linked cuDSS, cuBLAS and cuSOLVER) was
+> deleted on 2026-11-04 together with cuDSS; it stays in git history
+> (commit `dcadf6a`). Its conclusion led to `linalg/reduced_kkt`, which is
+> now the only KKT solver (REPORT.md section 14).
+
+
 Brief: `native/docs/briefs/reduced_kkt.md`. This was a measurement only; the
 solver is unchanged. Raw data: `native/bench/results/reduced-kkt-20261103/`.
 GPU: RTX 4070 SUPER (FP64 is 1/64 of FP32), CUDA 13.2, cuDSS 0.8.0.10, date 2026-11-03.

@@ -27,10 +27,9 @@ GraphExec& GraphExec::operator=(GraphExec&& o) noexcept {
   return *this;
 }
 
-void GraphExec::instantiate(cudaGraph_t graph, const std::function<void(cudaGraph_t)>& patch) {
+void GraphExec::instantiate(cudaGraph_t graph) {
   reset();
   graph_ = graph;
-  if (patch) patch(graph_);
   CUPIQP_CUDA_CHECK(cudaGraphInstantiate(&exec_, graph_, 0));
 }
 
@@ -96,7 +95,7 @@ void capture_conditional(LoopContext& ctx, cudaStream_t s, const int32_t* cond,
   // enclosing capture (end it; the graph object stays valid), capture the body
   // into the conditional node's body graph, then resume the enclosing capture
   // after the node with cudaStreamBeginCaptureToGraph. Streams that joined the
-  // enclosing capture through events (e.g. the cuDSS execution stream) leave it
+  // enclosing capture through events leave it
   // when it is suspended, so they can join the body capture; a helper-stream
   // body would merge two captures and break.
   CUPIQP_REQUIRE(ctx.depth < LoopContext::kMaxDepth, "capture_while nesting too deep");
