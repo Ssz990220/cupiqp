@@ -81,13 +81,12 @@ void ReducedKktSolver::init(const KktHostMaps& maps, const int32_t* d_indices, d
   // entry within row k's contiguous run in K.
   for (int32_t i = 0; i < n; ++i) Mcount[i + 1] += Mcount[i];
   const int32_t nnzM = Mcount[n];
-  std::vector<int32_t> Crow(nnzM), Coff(nnzM), Cslot(nnzM), fill(Mcount.begin(), Mcount.end() - 1);
+  std::vector<int32_t> Crow(nnzM), Coff(nnzM), fill(Mcount.begin(), Mcount.end() - 1);
   for (int32_t k = 0; k < mm; ++k)
     for (int32_t q = 0; q < Mlen[k]; ++q) {
       const int32_t at = fill[kp.indices[Kbase[k] + q]]++;
       Crow[at] = k;
       Coff[at] = q;
-      Cslot[at] = Kbase[k] + q;
     }
   // Assembly tasks: split column i's CSC range so that no task does much more
   // than the average work (estimated from the pattern: entry e costs
@@ -149,7 +148,8 @@ void ReducedKktSolver::init(const KktHostMaps& maps, const int32_t* d_indices, d
   upload(Cptr_, Mcount, s);
   upload(Crow_, Crow, s);
   upload(Coff_, Coff, s);
-  upload(Cslot_, Cslot, s);
+  Ca_.allocate(std::max<size_t>(Crow.size(), 1));
+  Ca_.zero_async(s);
 
   w_.allocate(std::max(mm, 1));
   H_.allocate(size_t(n) * n);
@@ -201,7 +201,7 @@ void ReducedKktSolver::assemble(cudaStream_t s) {
   assemble_kernel<W><<<num_tasks_, W * 32, assembly_smem_, s>>>(                                              \
       K_, w_.data(), Pptr_.data(), Pcol_.data(), Pslot_.data(), Kbase_.data(), Crow_.data(), Coff_.data(),     \
       Cv_.data(), Cc_.data(), pre_.data(), task_row_.data(), task_e0_.data(), task_e1_.data(), task_out_.data(), \
-      n_, H_.data(), ws_.data())
+      n_, H_.data(), ws_.data(), Ca_.data())
   switch (warps_) {
     case 16: CUPIQP_REDUCED_ASSEMBLE(16); break;
     case 8: CUPIQP_REDUCED_ASSEMBLE(8); break;
@@ -238,17 +238,17 @@ void ReducedKktSolver::factor(cudaStream_t s) {
 
 void ReducedKktSolver::solve(cudaStream_t s) {
   CUPIQP_REQUIRE(n_ > 0, "ReducedKktSolver used before init()");
-  reduce_rhs_kernel<<<n_, kRhsBlock, 0, s>>>(K_, w_.data(), Cptr_.data(), Crow_.data(),
-                                                           Cslot_.data(), rhs_.data(), n_, sol_.data());
+  reduce_rhs_kernel<<<n_, kRhsBlock, 0, s>>>(Ca_.data(), Cptr_.data(), Crow_.data(), rhs_.data(), n_,
+                                             sol_.data());
   CUPIQP_CUDA_CHECK_LAUNCH();
   const int N = (n_ + kTile - 1) / kTile;
   trsv_flow_kernel<<<2 * N, kTile, 0, s>>>(H_.data(), dinv_.data(), n_, sol_.data(), trsv_ticket_.data(),
                                            trsv_flags_.data());
   CUPIQP_CUDA_CHECK_LAUNCH();
   if (mm_ > 0) {
-    recover_kernel<<<int((int64_t(mm_) * 32 + 255) / 256), 256, 0, s>>>(K_, Kidx_, w_.data(), Kbase_.data(),
-                                                                       Mlen_.data(), rhs_.data(), n_, mm_,
-                                                                       sol_.data());
+    recover_kernel<<<int((int64_t(mm_) * 32 + 255) / 256), 256, 0, s>>>(
+        Cv_.data(), Cc_.data(), pre_.data(), w_.data(), Kbase_.data(), Mlen_.data(), rhs_.data(), n_, mm_,
+        sol_.data());
     CUPIQP_CUDA_CHECK_LAUNCH();
   }
 }

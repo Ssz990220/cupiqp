@@ -1,0 +1,4 @@
+ .../src/linalg/reduced_kkt/reduced_kkt_kernels.cuh | 42 +++++++++++++---------
+ .../src/linalg/reduced_kkt/reduced_kkt_solver.cu   | 18 +++++-----
+ .../src/linalg/reduced_kkt/reduced_kkt_solver.hpp  |  3 +-
+ 3 files changed, 37 insertions(+), 26 deletions(-)

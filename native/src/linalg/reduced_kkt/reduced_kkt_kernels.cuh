@@ -70,6 +70,8 @@ __global__ void compact_rows_kernel(const double* __restrict__ K, const int32_t*
 // are dropped by a ballot, then the warp walks row k's compacted nonzeros
 // with columns <= i (pre gives their count), lanes splitting them (distinct
 // columns), __syncwarp between rows. Fixed final order: P, warp 0..W-1.
+// Side output for the solves: Ca[e] = w_k M_ki for every CSC entry e (the
+// tasks partition the CSC entries, so every entry is written once).
 template <int W>
 __global__ void __launch_bounds__(W * 32) assemble_kernel(
     const double* __restrict__ K, const double* __restrict__ w, const int32_t* __restrict__ Pptr,
@@ -77,7 +79,8 @@ __global__ void __launch_bounds__(W * 32) assemble_kernel(
     const int32_t* __restrict__ Crow, const int32_t* __restrict__ Coff, const double* __restrict__ Cv,
     const int32_t* __restrict__ Cc, const int32_t* __restrict__ pre, const int32_t* __restrict__ task_row,
     const int32_t* __restrict__ task_e0, const int32_t* __restrict__ task_e1,
-    const int64_t* __restrict__ task_out, int n, double* __restrict__ H, double* __restrict__ ws) {
+    const int64_t* __restrict__ task_out, int n, double* __restrict__ H, double* __restrict__ ws,
+    double* __restrict__ Ca) {
   extern __shared__ double sh[];  // (W + 1) * n
   const int task = blockIdx.x, i = task_row[task];
   // task_out < 0: single-task row, written to H directly (adds P); else
@@ -104,6 +107,7 @@ __global__ void __launch_bounds__(W * 32) assemble_kernel(
       kb = Kbase[k];
       a = w[k] * K[kb + off];
       cnt = pre[kb + off];
+      Ca[e] = a;
     }
     unsigned mask = __ballot_sync(0xffffffffu, ok && a != 0.0);
     while (mask) {
@@ -262,20 +266,23 @@ __global__ void __launch_bounds__(kTile * kSub) chol_update_kernel(double* __res
   }
 }
 
-// x[i] = b[i] + sum_k M_ki w_k b[n + k]: one block of RHS_BLOCK threads per
-// column i of M (Cslot: K slot of each CSC entry), thread-strided partial
-// sums, then warp shuffles and a fixed-order sum over the warps.
+// x[i] = b[i] + sum_k (w_k M_ki) b[n + k]: one block of RHS_BLOCK threads per
+// column i of M, over the weighted CSC values Ca written by the assembly
+// (entries with Ca == 0, i.e. explicit zeros and inactive rows, skip the
+// gather of b), thread-strided partial sums, then warp shuffles and a
+// fixed-order sum over the warps.
 constexpr int kRhsBlock = 128;
-__global__ void __launch_bounds__(kRhsBlock) reduce_rhs_kernel(
-    const double* __restrict__ K, const double* __restrict__ w, const int32_t* __restrict__ Cptr,
-    const int32_t* __restrict__ Crow, const int32_t* __restrict__ Cslot, const double* __restrict__ b, int n,
-    double* __restrict__ x) {
+__global__ void __launch_bounds__(kRhsBlock) reduce_rhs_kernel(const double* __restrict__ Ca,
+                                                               const int32_t* __restrict__ Cptr,
+                                                               const int32_t* __restrict__ Crow,
+                                                               const double* __restrict__ b, int n,
+                                                               double* __restrict__ x) {
   __shared__ double part[kRhsBlock / 32];
   const int i = blockIdx.x, tid = threadIdx.x;
   double s = 0.0;
   for (int e = Cptr[i] + tid; e < Cptr[i + 1]; e += kRhsBlock) {
-    const int k = Crow[e];
-    s = fma(K[Cslot[e]], w[k] * b[n + k], s);
+    const double a = Ca[e];
+    if (a != 0.0) s = fma(a, b[n + Crow[e]], s);
   }
   s = warp_sum(s);
   if (tid % 32 == 0) part[tid / 32] = s;
@@ -407,16 +414,19 @@ __global__ void __launch_bounds__(32) trsv_flow_kernel(const double* __restrict_
   if (lane == 0) st_release_gpu(flags + (fwd ? b : N + b), epoch);
 }
 
-// x[n + k] = w_k (M_k dx - b[n + k])   (one warp per row k of M).
-__global__ void recover_kernel(const double* __restrict__ K, const int32_t* __restrict__ Kidx,
-                               const double* __restrict__ w, const int32_t* __restrict__ Kbase,
-                               const int32_t* __restrict__ Mlen, const double* __restrict__ b, int n, int mm,
-                               double* __restrict__ x) {
+// x[n + k] = w_k (M_k dx - b[n + k])   (one warp per row k of M), over the
+// row's compacted nonzeros (compact_rows_kernel: Cv / Cc, count pre of the
+// row's last stored entry).
+__global__ void recover_kernel(const double* __restrict__ Cv, const int32_t* __restrict__ Cc,
+                               const int32_t* __restrict__ pre, const double* __restrict__ w,
+                               const int32_t* __restrict__ Kbase, const int32_t* __restrict__ Mlen,
+                               const double* __restrict__ b, int n, int mm, double* __restrict__ x) {
   const int k = int((int64_t(blockIdx.x) * blockDim.x + threadIdx.x) / 32), lane = threadIdx.x % 32;
   if (k >= mm) return;
   const int kb = Kbase[k], len = Mlen[k];
+  const int cnt = len > 0 ? pre[kb + len - 1] : 0;
   double s = 0.0;
-  for (int q = lane; q < len; q += 32) s = fma(K[kb + q], x[Kidx[kb + q]], s);
+  for (int q = lane; q < cnt; q += 32) s = fma(Cv[kb + q], x[Cc[kb + q]], s);
   s = warp_sum(s);
   if (lane == 0) x[n + k] = w[k] * (s - b[n + k]);
 }
