@@ -54,6 +54,17 @@ void copy_d2d(cudaStream_t s, void* dst, const void* src, size_t bytes) {
   if (bytes) CUPIQP_CUDA_CHECK(cudaMemcpyAsync(dst, src, bytes, cudaMemcpyDeviceToDevice, s));
 }
 
+// Warm-start hook: s and z of infinite bounds are exactly 0 (as the default
+// initial guess leaves them), finite ones keep the staged values.
+__global__ void warm_mask_kernel(double* s_all, double* z_all, const double* finite_mask, int64_t ni) {
+  int64_t i = blockIdx.x * static_cast<int64_t>(blockDim.x) + threadIdx.x;
+  if (i >= ni) return;
+  if (!(finite_mask[i] > 0.5)) {
+    s_all[i] = 0.0;
+    z_all[i] = 0.0;
+  }
+}
+
 // Owned storage of one reference Variables object (primal and dual buffers).
 struct VariablesStorage {
   CudaBuffer<double> primal, dual;
@@ -227,17 +238,26 @@ class SparseSolverImpl {
   }
 
   // ------------------------------------------------------------------ solve
-  void solve() {
+  void solve() { solve_impl(0u, false); }
+
+  // Default path: warm_fields == 0 (solve_graph_, prelude_graph_, solve_prelude
+  // exactly as before the hook existed). Warm path: its own graphs per key.
+  void solve_impl(uint32_t warm_fields, bool warm_from_host) {
     require_setup("solve()");
     cudaStream_t s = stream_.get();
     upload_settings(s);
     GraphMode mode = effective_mode();
     if (!timing_started_) event_record_start();
+    const bool warm = warm_fields != 0u;
+    const uint32_t key = warm_fields | (warm_from_host ? 16u : 0u);
+    warm_fields_ = warm_fields;
+    warm_from_host_ = warm_from_host;
 
     if (mode == GraphMode::SolveGraphDeviceLoop) {
-      ensure_solve_graph(s);
-      if (solve_graph_.valid()) {
-        solve_graph_.launch(s, &counters_);
+      GraphExec& g = warm ? warm_solve_graphs_[key] : solve_graph_;
+      ensure_solve_graph(s, g);
+      if (g.valid()) {
+        g.launch(s, &counters_);
       } else {
         mode = GraphMode::IterationGraphHostLoop;  // capture failed: per-iteration graphs
       }
@@ -245,7 +265,10 @@ class SparseSolverImpl {
     if (mode == GraphMode::IterationGraphHostLoop) {
       // Prelude and finalization as CUDA graphs (captured on first use), the
       // IPM loop driven from the host with one iteration graph per iteration.
-      launch_cached(prelude_graph_, s, [this](cudaStream_t st) { solve_prelude(st); });
+      if (warm)
+        launch_cached(warm_prelude_graphs_[key], s, [this](cudaStream_t st) { solve_prelude(st); });
+      else
+        launch_cached(prelude_graph_, s, [this](cudaStream_t st) { solve_prelude(st); });
       capture_while(loops_, s, continue_flag(), [this](cudaStream_t st) { launch_iteration_graph(st); });
       launch_cached(finalize_graph_, s, [this](cudaStream_t st) { solve_finalize(st); });
     } else if (mode == GraphMode::None) {
@@ -256,6 +279,34 @@ class SparseSolverImpl {
     }
     event_record_solve_end();
     ++counters_.solves;
+  }
+
+  // ------------------------------------------------------------------ warm start (experimental)
+  WarmStartBuffers warm_start_buffers(bool host) {
+    require_setup("warm_start_buffers()");
+    ensure_warm_storage();
+    WarmStartBuffers w;
+    double* pr = host ? warm_host_primal_.data() : warm_in_.view.primal;
+    double* du = host ? warm_host_dual_.data() : warm_in_.view.dual;
+    VariablesView<double> v = warm_in_.view;
+    v.primal = pr;
+    v.dual = du;
+    w.n = d_.n; w.p = d_.p; w.m = d_.m;
+    w.num_hl = d_.num_hl; w.num_hu = d_.num_hu; w.num_xl = d_.num_xl; w.num_xu = d_.num_xu;
+    w.x = v.x(); w.y = v.y();
+    w.s_l = d_.num_hl ? v.s_l() : nullptr; w.s_u = d_.num_hu ? v.s_u() : nullptr;
+    w.s_bl = d_.num_xl ? v.s_bl() : nullptr; w.s_bu = d_.num_xu ? v.s_bu() : nullptr;
+    w.z_l = d_.num_hl ? v.z_l() : nullptr; w.z_u = d_.num_hu ? v.z_u() : nullptr;
+    w.z_bl = d_.num_xl ? v.z_bl() : nullptr; w.z_bu = d_.num_xu ? v.z_bu() : nullptr;
+    return w;
+  }
+
+  void solve_warm(uint32_t fields, bool from_host) {
+    require_setup("solve_warm()");
+    CUPIQP_REQUIRE(fields != 0u && (fields & ~uint32_t(kWarmAll)) == 0u,
+                   "solve_warm(): fields must be a nonzero combination of kWarmX/Y/S/Z.");
+    CUPIQP_REQUIRE(warm_allocated_, "solve_warm(): call warm_start_buffers() and write a start first.");
+    solve_impl(fields, from_host);
   }
 
   template <class Fn>
@@ -413,6 +464,14 @@ class SparseSolverImpl {
   CudaBuffer<double> in_dev_[kBlocks];
   CudaPinnedBuffer<double> in_host_[kBlocks];
   bool solve_graph_failed_ = false;
+
+  // Experimental warm-start hook (allocated on first warm_start_buffers()).
+  VariablesStorage warm_in_, warm_scaled_;
+  CudaPinnedBuffer<double> warm_host_primal_, warm_host_dual_;
+  bool warm_allocated_ = false;
+  uint32_t warm_fields_ = 0u;  // read at capture time by solve_prelude()
+  bool warm_from_host_ = false;
+  std::map<uint32_t, GraphExec> warm_solve_graphs_, warm_prelude_graphs_;
 
   CudaEvent ev_start_, ev_update_end_, ev_solve_end_;
   bool timing_started_ = false, have_update_ = false, timing_valid_ = false;
@@ -587,15 +646,15 @@ class SparseSolverImpl {
   // is capturable (custom kernels only, no allocation after setup). If the
   // capture or instantiation fails anyway, the solver falls back to the
   // per-iteration graph for its lifetime.
-  void ensure_solve_graph(cudaStream_t s) {
-    if (solve_graph_.valid() || solve_graph_failed_) return;
+  void ensure_solve_graph(cudaStream_t s, GraphExec& ge) {
+    if (ge.valid() || solve_graph_failed_) return;
     try {
       cudaGraph_t g = capture(s, [this](cudaStream_t st) {
         run_device_solve(st, [this](cudaStream_t b) { run_one_iteration(b); });
       }, &counters_);
-      solve_graph_.instantiate(g);
+      ge.instantiate(g);
     } catch (const Error&) {
-      solve_graph_.reset();
+      ge.reset();
       solve_graph_failed_ = true;
     }
   }
@@ -612,7 +671,8 @@ class SparseSolverImpl {
   void solve_prelude(cudaStream_t s) {
     reset_solve_state(s);
     zero(s, loop_state_.data(), 2 * sizeof(int32_t));
-    initial_guess(s);
+    if (warm_fields_ == 0u) initial_guess(s);
+    else warm_initial_guess(s);
     update_residuals_nr(s);
     copy_d2d(s, info_.prev_primal_res, info_.primal_res, sizeof(double) * d_.B);
     copy_d2d(s, info_.prev_dual_res, info_.dual_res, sizeof(double) * d_.B);
@@ -758,6 +818,54 @@ class SparseSolverImpl {
     }
     copy_d2d(s, prox_.view.primal, r.primal, sizeof(double) * B * d_.num_primal());
     copy_d2d(s, prox_.view.dual, r.dual, sizeof(double) * B * d_.num_dual());
+  }
+
+  // Experimental hook: install the staged start (user coordinates). Parts
+  // not selected in warm_fields_ come from the default initial guess.
+  void warm_initial_guess(cudaStream_t s) {
+    const int B = d_.B, ni = d_.num_ineq();
+    const size_t np = sizeof(double) * B * d_.num_primal(), nd = sizeof(double) * B * d_.num_dual();
+    auto& r = result_.view;
+    auto& w = warm_scaled_.view;
+    if (warm_from_host_) {
+      CUPIQP_CUDA_CHECK(cudaMemcpyAsync(warm_in_.view.primal, warm_host_primal_.data(), np,
+                                        cudaMemcpyHostToDevice, s));
+      CUPIQP_CUDA_CHECK(cudaMemcpyAsync(warm_in_.view.dual, warm_host_dual_.data(), nd,
+                                        cudaMemcpyHostToDevice, s));
+    }
+    copy_d2d(s, w.primal, warm_in_.view.primal, np);
+    copy_d2d(s, w.dual, warm_in_.view.dual, nd);
+    if (settings.preconditioner_iter > 0) ruiz_.scale_solution(w, s);
+    if (warm_fields_ != kWarmAll) initial_guess(s);  // fills the parts not selected
+    if (warm_fields_ & kWarmX) copy_d2d(s, r.x(), w.x(), sizeof(double) * B * d_.n);
+    if (warm_fields_ & kWarmY) copy_d2d(s, r.y(), w.y(), sizeof(double) * B * d_.p);
+    if (warm_fields_ & kWarmS) copy_d2d(s, r.s_all(), w.s_all(), sizeof(double) * B * ni);
+    if (warm_fields_ & kWarmZ) copy_d2d(s, r.z_all(), w.z_all(), sizeof(double) * B * ni);
+    if (ni > 0) {
+      auto dv = data_.view();
+      warm_mask_kernel<<<grid_for(int64_t(B) * ni), 256, 0, s>>>(r.s_all(), r.z_all(), dv.finite_mask_all,
+                                                                 int64_t(B) * ni);
+      CUPIQP_CUDA_CHECK_LAUNCH();
+      launch_calculate_mu<double>(s, B, ni, rows_s_all(r), rows_z_all(r), rows(dv.finite_mask_all, ni),
+                                  dv.num_finite_bounds, info_.mu, rws_);
+    }
+    copy_d2d(s, prox_.view.primal, r.primal, np);
+    copy_d2d(s, prox_.view.dual, r.dual, nd);
+  }
+
+  void ensure_warm_storage() {
+    if (warm_allocated_) return;
+    cudaStream_t s = stream_.get();
+    warm_in_.allocate(d_);
+    warm_scaled_.allocate(d_);
+    warm_host_primal_.allocate(static_cast<size_t>(d_.B) * d_.num_primal());
+    warm_host_dual_.allocate(static_cast<size_t>(d_.B) * d_.num_dual());
+    warm_in_.primal.zero_async(s); warm_in_.dual.zero_async(s);
+    warm_scaled_.primal.zero_async(s); warm_scaled_.dual.zero_async(s);
+    sync_stream(s, &counters_);
+    std::memset(warm_host_primal_.data(), 0, sizeof(double) * warm_host_primal_.size());
+    std::memset(warm_host_dual_.data(), 0, sizeof(double) * warm_host_dual_.size());
+    warm_allocated_ = true;
   }
 
   void run_full_newton_step(cudaStream_t s) {
@@ -971,6 +1079,8 @@ void SparseSolver::setup(const CsrPattern& P, const ValuesView& values, const Cs
 void SparseSolver::update(const ValuesView& values) { impl_->update(values, false); }
 void SparseSolver::update_from_host(const ValuesView& host_values) { impl_->update(host_values, true); }
 void SparseSolver::solve() { impl_->solve(); }
+WarmStartBuffers SparseSolver::warm_start_buffers(bool host) { return impl_->warm_start_buffers(host); }
+void SparseSolver::solve_warm(uint32_t fields, bool from_host) { impl_->solve_warm(fields, from_host); }
 InputBuffers SparseSolver::input_buffers() { return impl_->input_buffers(false); }
 InputBuffers SparseSolver::host_input_buffers() { return impl_->input_buffers(true); }
 void SparseSolver::update_staged(const UpdateBlocks& blocks, bool from_host) { impl_->update_staged(blocks, from_host); }

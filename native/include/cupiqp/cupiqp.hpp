@@ -207,6 +207,30 @@ struct PhaseTimings {
   float solve_ms = 0, factor_ms_total = 0, kkt_solve_ms_total = 0;
 };
 
+// EXPERIMENTAL initial-point hook (warm-start study, see
+// native/docs/modules/warmstart_study.md). Pointers to solver-owned staging
+// buffers in the user (unscaled) coordinates, laid out like ResultView.
+// Allocated on the first warm_start_buffers() call and stable afterwards.
+struct WarmStartBuffers {
+  double *x = nullptr, *y = nullptr;
+  double *z_l = nullptr, *z_u = nullptr, *z_bl = nullptr, *z_bu = nullptr;
+  double *s_l = nullptr, *s_u = nullptr, *s_bl = nullptr, *s_bu = nullptr;
+  int32_t n = 0, p = 0, m = 0;
+  int32_t num_hl = 0, num_hu = 0, num_xl = 0, num_xu = 0;
+};
+
+// Which parts of the staged start solve_warm() uses (bit mask). Parts not
+// selected come from the default initial guess (eq. 12 of Schwan et al.
+// 2023), which then runs first. The proximal centers always start at the
+// resulting initial point, and mu = s'z / (number of finite bounds).
+enum WarmStartField : uint32_t {
+  kWarmX = 1u,
+  kWarmY = 2u,
+  kWarmS = 4u,
+  kWarmZ = 8u,
+  kWarmAll = 15u
+};
+
 class SparseSolverImpl;
 
 // Sparse FP64 solver, batch size 1. Not thread safe; one instance per thread.
@@ -256,6 +280,17 @@ class SparseSolver {
   // launch with no host wait; the other modes wait on one loop-state copy per
   // IPM iteration.
   void solve();
+
+  // EXPERIMENTAL initial-point hook. warm_start_buffers(false) returns device
+  // staging buffers, warm_start_buffers(true) pinned host ones. Write a start
+  // (x, y, s, z in user coordinates; s and z strictly positive on finite
+  // bounds, any value on infinite ones, which are zeroed), then call
+  // solve_warm(fields, from_host). The start is copied (host-to-device when
+  // from_host), Ruiz-scaled and installed inside the solve, so the whole
+  // solve stays one CUDA graph (one graph per (fields, from_host) pair,
+  // captured on first use). solve() itself is unchanged by this hook.
+  WarmStartBuffers warm_start_buffers(bool host = false);
+  void solve_warm(uint32_t fields = kWarmAll, bool from_host = false);
 
   ResultView result() const;
   // Enqueue a copy of x (length n) into `host` (pinned memory recommended) and

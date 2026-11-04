@@ -121,6 +121,27 @@ void bind_solver(nb::module_& m, nb::module_& testing) {
         nb::gil_scoped_release release;
         s.solve();
       })
+      .def("warm_start_buffers",
+           [](SparseSolver& s, bool host) {
+             WarmStartBuffers w = s.warm_start_buffers(host);
+             nb::dict d;
+             auto put = [&](const char* k, double* p, int64_t len) {
+               d[k] = nb::make_tuple(reinterpret_cast<uintptr_t>(p), len);
+             };
+             put("x", w.x, w.n); put("y", w.y, w.p);
+             put("z_l", w.z_l, w.num_hl); put("z_u", w.z_u, w.num_hu);
+             put("z_bl", w.z_bl, w.num_xl); put("z_bu", w.z_bu, w.num_xu);
+             put("s_l", w.s_l, w.num_hl); put("s_u", w.s_u, w.num_hu);
+             put("s_bl", w.s_bl, w.num_xl); put("s_bu", w.s_bu, w.num_xu);
+             return d;
+           },
+           nb::arg("host") = false)
+      .def("solve_warm",
+           [](SparseSolver& s, uint32_t fields, bool from_host) {
+             nb::gil_scoped_release release;
+             s.solve_warm(fields, from_host);
+           },
+           nb::arg("fields") = static_cast<uint32_t>(kWarmAll), nb::arg("from_host") = false)
       .def("result_ptrs",
            [](const SparseSolver& s) {
              ResultView r = s.result();

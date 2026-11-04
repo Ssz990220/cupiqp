@@ -338,3 +338,45 @@ class SparseSolver:
         self._enter()
         self._native.solve()
         self._exit()
+
+    # ------------------------------------------------------------- warm start (experimental)
+    _WARM_BITS = {"x": 1, "y": 2, "s": 4, "z": 8}
+
+    def warm_start_buffers(self, host=True) -> dict:
+        """EXPERIMENTAL. Solver-owned staging buffers for an initial point in
+        the user (unscaled) coordinates: ``{name: array}`` for x, y, s_l, s_u,
+        s_bl, s_bu, z_l, z_u, z_bl, z_bu (present ones only). ``host=True``
+        gives zero-copy NumPy views of pinned host memory (use with
+        ``solve_warm(from_host=True)``); ``host=False`` gives Warp device
+        arrays. s and z must be strictly positive on finite bounds."""
+        if self._sizes is None:
+            raise RuntimeError("Solver not setup yet. Call setup() first.")
+        attr = "_warm_host" if host else "_warm_dev"
+        if not hasattr(self, attr):
+            out = {}
+            for k, (ptr, n) in self._native.warm_start_buffers(bool(host)).items():
+                if not n:
+                    continue
+                if host:
+                    import ctypes
+                    buf = (ctypes.c_double * n).from_address(ptr)
+                    out[k] = np.frombuffer(buf, dtype=np.float64, count=n)
+                else:
+                    out[k] = wrap(ptr, (n,), owner=self)
+            setattr(self, attr, out)
+        return getattr(self, attr)
+
+    def solve_warm(self, fields="xysz", from_host=True):
+        """EXPERIMENTAL. Solve from the staged initial point. ``fields`` names
+        the parts taken from the staged start (any of "x", "y", "s", "z");
+        the other parts come from the default initial guess. The proximal
+        centers start at the resulting point. One CUDA graph per
+        (fields, from_host) pair, captured on first use."""
+        if self._sizes is None:
+            raise RuntimeError("Solver not setup yet. Call setup() first.")
+        bits = 0
+        for ch in fields:
+            bits |= self._WARM_BITS[ch]
+        self._enter()
+        self._native.solve_warm(bits, bool(from_host))
+        self._exit()
