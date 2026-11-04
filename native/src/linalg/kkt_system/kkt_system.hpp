@@ -14,8 +14,8 @@
 #include "common/graph.hpp"
 #include "common/multiblock.hpp"
 #include "common/views.hpp"
-#include "linalg/cudss/cudss_solver.hpp"
 #include "linalg/kkt_assembly/kkt_assembly.hpp"
+#include "linalg/kkt_system/kkt_linear_solver.hpp"
 #include "linalg/spmv/spmv.hpp"
 
 namespace cupiqp {
@@ -25,17 +25,19 @@ class KktSystem {
   // Allocate x_reg, z_reg, z_reg_inv, rho/delta copies, rhs_x_bar, rhs_z_bar,
   // work buffers, m_s_all, m_z_inv_all, w_delta_inv_all, updated_rhs_z_all,
   // factor_status / solve_status (int32, zero), refinement buffers.
-  // `kkt` must be initialized and `cudss` initialized on kkt's pattern/values
-  // and analyzed by the caller; `ops` initialized on the same data. Every
+  // `kkt` must be initialized and `solver` initialized on kkt's pattern/values
+  // (cuDSS: and analyzed) by the caller; `ops` initialized on the same data. Every
   // pointer must outlive this object. `settings` is unused (runtime values are
   // read from dev_settings on the device).
-  void init(const Dims& dims, const Settings& settings, KktAssembly* kkt, CudssSolver* cudss,
+  void init(const Dims& dims, const Settings& settings, KktAssembly* kkt, KktLinearSolver* solver,
             SparseOperators* ops, DeviceSettingsView<double> dev_settings, LoopContext* loops,
             cudaStream_t s);
 
   // Reference update_scalings_and_factor: update_regularizations kernel, KKT
-  // diagonal update (KktAssembly::update_diagonal), cuDSS factorization.
-  // factor_status stays 0 (reference: the cuDSS outcome is never read).
+  // diagonal update (KktAssembly::update_diagonal), backend factorization.
+  // cuDSS: factor_status stays 0 (reference: the cuDSS outcome is never read).
+  // Reduced backend: factor_status is the Cholesky outcome (reference dense
+  // backend semantics), which drives the factor-retry kernel.
   void update_scalings_and_factor(const SparseDataView<double>& data, const ScalingView<double>& scaling,
                                   bool iterative_refinement, const double* rho, const double* delta,
                                   const VariablesView<double>& vars, cudaStream_t s);
@@ -50,7 +52,11 @@ class KktSystem {
   void solve(const SparseDataView<double>& data, const ScalingView<double>& scaling,
              const VariablesView<double>& rhs, const VariablesView<double>& lhs, cudaStream_t s);
 
-  const int32_t* factor_status() const { return factor_status_.data(); }  // (B,)
+  // (B,), stable address: the backend's status when it reports one, else a
+  // buffer that stays zero.
+  const int32_t* factor_status() const {
+    return solver_ && solver_->factor_status() ? solver_->factor_status() : factor_status_.data();
+  }
   const int32_t* solve_status() const { return solve_status_.data(); }    // (B,)
 
  private:
@@ -72,7 +78,7 @@ class KktSystem {
 
   Dims dims_;
   KktAssembly* kkt_ = nullptr;
-  CudssSolver* cudss_ = nullptr;
+  KktLinearSolver* solver_ = nullptr;
   SparseOperators* ops_ = nullptr;
   LoopContext* loops_ = nullptr;
   DeviceSettingsView<double> dev_settings_{};

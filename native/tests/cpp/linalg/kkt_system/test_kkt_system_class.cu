@@ -23,7 +23,9 @@
 #include "common/buffer.hpp"
 #include "common/graph.hpp"
 #include "common/handles.hpp"
+#include "linalg/cudss/cudss_solver.hpp"
 #include "linalg/kkt_system/kkt_system.hpp"
+#include "linalg/reduced_kkt/reduced_kkt_solver.hpp"
 
 using namespace cupiqp;
 
@@ -263,24 +265,32 @@ struct Stack {
   CusparseHandle cusparse;
   KktAssembly kkt;
   CudssSolver cudss{&counters};
+  ReducedKktSolver reduced;
   SparseOperators ops;
   LoopContext loops{&counters};
   KktSystem sys;
 
-  explicit Stack(Fixture& f, bool deterministic = false) {
+  explicit Stack(Fixture& f, bool use_reduced = false) {
     cudaStream_t s = stream.get();
     kkt.init(f.P.pat, f.A.pat, f.G.pat, f.data, s);
-    cudss.init(kkt.dim(), kkt.nnz(), kkt.indptr(), kkt.indices(), kkt.values(), deterministic, s);
-    cudss.analyze(s);
+    KktLinearSolver* solver = nullptr;
+    if (use_reduced) {
+      reduced.init(kkt, s);
+      solver = &reduced;
+    } else {
+      cudss.init(kkt.dim(), kkt.nnz(), kkt.indptr(), kkt.indices(), kkt.values(), false, s);
+      cudss.analyze(s);
+      solver = &cudss;
+    }
     ops.init(cusparse.get(), f.data);
     Settings settings;
-    sys.init(f.d, settings, &kkt, &cudss, &ops, DeviceSettingsView<double>{f.sf.data(), f.si.data()}, &loops, s);
+    sys.init(f.d, settings, &kkt, solver, &ops, DeviceSettingsView<double>{f.sf.data(), f.si.data()}, &loops, s);
   }
 };
 
-void run_and_check(unsigned seed, bool ir) {
+void run_and_check(unsigned seed, bool ir, bool reduced = false) {
   Fixture f(seed);
-  Stack st(f);
+  Stack st(f, reduced);
   cudaStream_t s = st.stream.get();
   st.sys.update_scalings_and_factor(f.data, f.scaling, ir, f.rho_d.data(), f.delta_d.data(),
                                     f.view(f.vars_p, f.vars_d), s);
@@ -290,7 +300,7 @@ void run_and_check(unsigned seed, bool ir) {
   auto ld = down(f.lhs_d.data(), f.lhs_d.size());
   double res = 0, inf_entries = 0;
   f.check(lp, ld, &res, &inf_entries);
-  EXPECT_LE(res, 1e-9) << "seed " << seed << " ir " << ir;
+  EXPECT_LE(res, 1e-9) << "seed " << seed << " ir " << ir << " reduced " << reduced;
   EXPECT_EQ(inf_entries, 0.0);
   EXPECT_EQ(down(st.sys.solve_status(), 1)[0], 0);
   EXPECT_EQ(down(st.sys.factor_status(), 1)[0], 0);
@@ -304,6 +314,64 @@ TEST(KktSystemClass, FullSystemResidual) {
 
 TEST(KktSystemClass, FullSystemResidualWithIterativeRefinement) {
   for (unsigned seed : {4u, 5u}) run_and_check(seed, true);
+}
+
+TEST(KktSystemClass, ReducedBackendFullSystemResidual) {
+  for (unsigned seed : {1u, 2u, 3u, 11u, 12u}) run_and_check(seed, false, true);
+}
+
+TEST(KktSystemClass, ReducedBackendFullSystemResidualWithIterativeRefinement) {
+  for (unsigned seed : {4u, 5u}) run_and_check(seed, true, true);
+}
+
+// The reduced backend is deterministic: a captured replay reproduces the
+// eager result bit for bit.
+TEST(KktSystemClass, ReducedBackendCapturedSolveIsBitwiseEager) {
+  for (bool ir : {false, true}) {
+    Fixture f(7);
+    Stack st(f, true);
+    cudaStream_t s = st.stream.get();
+    auto run = [&](cudaStream_t cs) {
+      st.sys.update_scalings_and_factor(f.data, f.scaling, ir, f.rho_d.data(), f.delta_d.data(),
+                                        f.view(f.vars_p, f.vars_d), cs);
+      st.sys.solve(f.data, f.scaling, f.view(f.rhs_p, f.rhs_d), f.view(f.lhs_p, f.lhs_d), cs);
+    };
+    run(s);
+    CUPIQP_CUDA_CHECK(cudaStreamSynchronize(s));
+    auto lp0 = down(f.lhs_p.data(), f.lhs_p.size());
+    auto ld0 = down(f.lhs_d.data(), f.lhs_d.size());
+    f.lhs_p.zero_async(s);
+    f.lhs_d.zero_async(s);
+    GraphExec g;
+    g.instantiate(capture(s, run, &st.counters));
+    for (int rep = 0; rep < 2; ++rep) {
+      g.launch(s, &st.counters);
+      CUPIQP_CUDA_CHECK(cudaStreamSynchronize(s));
+      EXPECT_EQ(down(f.lhs_p.data(), f.lhs_p.size()), lp0) << "ir " << ir;
+      EXPECT_EQ(down(f.lhs_d.data(), f.lhs_d.size()), ld0) << "ir " << ir;
+    }
+    EXPECT_EQ(down(st.sys.factor_status(), 1)[0], 0);
+  }
+}
+
+// A non-positive-definite reduced matrix (rho = -1e8 dominates P and the
+// M^T W M term) must be reported in factor_status.
+TEST(KktSystemClass, ReducedBackendReportsFailedFactorization) {
+  Fixture f(3);
+  Stack st(f, true);
+  cudaStream_t s = st.stream.get();
+  const double neg_rho = -1e8;
+  CUPIQP_CUDA_CHECK(cudaMemcpy(f.rho_d.data(), &neg_rho, sizeof(double), cudaMemcpyHostToDevice));
+  st.sys.update_scalings_and_factor(f.data, f.scaling, false, f.rho_d.data(), f.delta_d.data(),
+                                    f.view(f.vars_p, f.vars_d), s);
+  CUPIQP_CUDA_CHECK(cudaStreamSynchronize(s));
+  EXPECT_NE(down(st.sys.factor_status(), 1)[0], 0);
+  // Back to a valid rho: the status is reset by the next factorization.
+  CUPIQP_CUDA_CHECK(cudaMemcpy(f.rho_d.data(), &f.rho, sizeof(double), cudaMemcpyHostToDevice));
+  st.sys.update_scalings_and_factor(f.data, f.scaling, false, f.rho_d.data(), f.delta_d.data(),
+                                    f.view(f.vars_p, f.vars_d), s);
+  CUPIQP_CUDA_CHECK(cudaStreamSynchronize(s));
+  EXPECT_EQ(down(st.sys.factor_status(), 1)[0], 0);
 }
 
 // Two cuDSS factorizations of the same matrix may differ in the last bits
@@ -347,14 +415,16 @@ TEST(KktSystemClass, CapturedSolveMatchesEager) {
 }
 
 TEST(KktSystemClass, NanInputSetsSolveStatus) {
+ for (bool reduced : {false, true}) {
   Fixture f(9);
   f.rhs_primal[0] = NAN;
   CUPIQP_CUDA_CHECK(cudaMemcpy(f.rhs_p.data(), f.rhs_primal.data(), sizeof(double), cudaMemcpyHostToDevice));
-  Stack st(f);
+  Stack st(f, reduced);
   cudaStream_t s = st.stream.get();
   st.sys.update_scalings_and_factor(f.data, f.scaling, false, f.rho_d.data(), f.delta_d.data(),
                                     f.view(f.vars_p, f.vars_d), s);
   st.sys.solve(f.data, f.scaling, f.view(f.rhs_p, f.rhs_d), f.view(f.lhs_p, f.lhs_d), s);
   CUPIQP_CUDA_CHECK(cudaStreamSynchronize(s));
-  EXPECT_EQ(down(st.sys.solve_status(), 1)[0], 1);
+  EXPECT_EQ(down(st.sys.solve_status(), 1)[0], 1) << "reduced " << reduced;
+ }
 }

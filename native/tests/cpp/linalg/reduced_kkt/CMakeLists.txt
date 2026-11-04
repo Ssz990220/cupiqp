@@ -1,0 +1,1 @@
+cupiqp_add_test(test_reduced_kkt test_reduced_kkt.cu)

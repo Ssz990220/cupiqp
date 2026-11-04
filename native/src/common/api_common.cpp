@@ -31,7 +31,8 @@ bool Settings::verify() const {
          iterative_refinement_eps_rel >= 0 && iterative_refinement_max_iter >= 0 &&
          iterative_refinement_min_improvement_rate >= 1.0 &&
          iterative_refinement_static_regularization_eps > 0 &&
-         iterative_refinement_static_regularization_rel >= 0;
+         iterative_refinement_static_regularization_rel >= 0 &&
+         (kkt_backend == KktBackend::Cudss || kkt_backend == KktBackend::Reduced);
 }
 
 CsrPattern CsrPattern::from_int64(int64_t rows, int64_t cols, const int64_t* indptr,

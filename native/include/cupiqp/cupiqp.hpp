@@ -114,6 +114,15 @@ enum class GraphMode : int32_t {
   SolveGraphDeviceLoop = 3     // EXPERIMENTAL whole-solve graph (FEASIBILITY.md 3.3)
 };
 
+// Linear-solver backend of the condensed KKT system (native extension).
+enum class KktBackend : int32_t {
+  Cudss = 0,   // sparse LDL^T with cuDSS (reference behavior, default)
+  Reduced = 1  // dense Schur complement on the x block, custom Cholesky; opt-in.
+               // Requires n <= 2048 (rejected at setup otherwise). Reports
+               // Cholesky failures to the factor-retry logic (reference dense
+               // backend semantics).
+};
+
 // Same fields, names and FP64 defaults as cupiqp.Settings.for_dtype(float64).
 struct Settings {
   double rho_init = 1e-6;
@@ -148,6 +157,8 @@ struct Settings {
   // CSR/CSC kernels instead of cuSPARSE for the residual products. Results
   // agree with cuSPARSE within 1e-14 relative; off by default for parity.
   bool custom_spmv = false;
+  // Native extension: KKT linear-solver backend, frozen after setup().
+  KktBackend kkt_backend = KktBackend::Cudss;
   bool enable_cuda_graph = true;
   bool verbose = false;          // only honoured with GraphMode::None
   bool compute_timings = false;  // CUDA-event phase timers (adds no host sync)

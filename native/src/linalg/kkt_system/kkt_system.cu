@@ -17,15 +17,15 @@ inline CDMat cmat(const double* p, int64_t ld, int64_t off = 0) { return CDMat{p
 
 }  // namespace
 
-void KktSystem::init(const Dims& dims, const Settings& settings, KktAssembly* kkt, CudssSolver* cudss,
+void KktSystem::init(const Dims& dims, const Settings& settings, KktAssembly* kkt, KktLinearSolver* solver,
                      SparseOperators* ops, DeviceSettingsView<double> dev_settings, LoopContext* loops,
                      cudaStream_t s) {
   (void)settings;  // runtime settings are read on the device (dev_settings)
-  CUPIQP_REQUIRE(kkt && cudss && ops && loops, "KktSystem::init: null dependency");
+  CUPIQP_REQUIRE(kkt && solver && ops && loops, "KktSystem::init: null dependency");
   CUPIQP_REQUIRE(kkt->dim() == dims.kkt_dim(), "KktSystem::init: KKT dimension mismatch");
   dims_ = dims;
   kkt_ = kkt;
-  cudss_ = cudss;
+  solver_ = solver;
   ops_ = ops;
   loops_ = loops;
   dev_settings_ = dev_settings;
@@ -115,7 +115,7 @@ void KktSystem::update_scalings_and_factor(const SparseDataView<double>& data, c
   use_ir_ = iterative_refinement;
   // Reference SparseKKTSolver.update_and_factor_kkt.
   kkt_->update_diagonal(x_reg_.data(), delta_.data(), z_reg_.data(), s);
-  cudss_->factor(s);
+  solver_->factor(s);
 }
 
 void KktSystem::kkt_solve(const double* rhs_x, const double* rhs_y, const double* rhs_z, double* lhs_x,
@@ -123,9 +123,9 @@ void KktSystem::kkt_solve(const double* rhs_x, const double* rhs_y, const double
   const Dims& d = dims_;
   const int64_t W = int64_t(d.n) + d.p + d.m;
   kkt_kernels::assemble_rhs(d.B, d.n, d.p, d.m, cmat(rhs_x, d.n), cmat(rhs_y, d.p), cmat(rhs_z, d.m),
-                            mat(cudss_->rhs(), W), s);
-  cudss_->solve(s);
-  kkt_kernels::split_sol(d.B, d.n, d.p, d.m, cmat(cudss_->sol(), W), mat(lhs_x, d.n), mat(lhs_y, d.p),
+                            mat(solver_->rhs(), W), s);
+  solver_->solve(s);
+  kkt_kernels::split_sol(d.B, d.n, d.p, d.m, cmat(solver_->sol(), W), mat(lhs_x, d.n), mat(lhs_y, d.p),
                          mat(lhs_z, d.m), s);
   kkt_kernels::solution_finite(d.B, d.n, d.p, d.m, cmat(lhs_x, d.n), cmat(lhs_y, d.p), cmat(lhs_z, d.m),
                                solve_status_.data(), s, reduce_ws_.view());

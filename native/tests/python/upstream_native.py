@@ -8,6 +8,11 @@ solver, while the rest of the reference package (helpers, Status, dense and
 multistage backends, PIQP comparisons) stays the reference. Tests that need
 features outside milestone 1 (batch size > 1, float32, gradients, solver
 internals) are skipped with the reason, never silently passed.
+
+``CUPIQP_NATIVE_KKT_BACKEND=reduced`` (default ``cudss``) makes every native
+solver created by the upstream tests use that KKT backend. With ``reduced``,
+a problem whose n exceeds the reduced backend's limit is skipped at setup()
+with the reason (the backend rejects it), never silently passed.
 """
 import os
 import re
@@ -26,7 +31,30 @@ for p in (_BUILD / "python", _REPO):
 import cupiqp  # noqa: E402
 import cupiqp_native  # noqa: E402
 
-cupiqp.SparseSolver = cupiqp_native.SparseSolver
+KKT_BACKEND = os.environ.get("CUPIQP_NATIVE_KKT_BACKEND", "cudss").strip().lower()
+if KKT_BACKEND not in ("cudss", "reduced"):
+    raise ValueError(f"CUPIQP_NATIVE_KKT_BACKEND must be 'cudss' or 'reduced'; got {KKT_BACKEND!r}")
+
+if KKT_BACKEND == "cudss":
+    cupiqp.SparseSolver = cupiqp_native.SparseSolver
+else:
+    class _BackendSparseSolver(cupiqp_native.SparseSolver):
+        """Native solver with the KKT backend selected by the environment."""
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.settings.kkt_backend = KKT_BACKEND
+
+        def setup(self, *args, **kwargs):
+            try:
+                return super().setup(*args, **kwargs)
+            except cupiqp_native._ext.Error as e:
+                if "kkt_backend = Reduced supports n <=" in str(e):
+                    pytest.skip(f"reduced KKT backend: {e}")
+                raise
+
+    _BackendSparseSolver.__name__ = "SparseSolver"
+    cupiqp.SparseSolver = _BackendSparseSolver
 NATIVE_ACTIVE = True
 
 # Name patterns of upstream tests that exercise features outside milestone 1.
