@@ -1,0 +1,166 @@
+{
+ "results": "native/bench/results/reduced-auto-wholegraph-20261103/mpc/reduced-auto",
+ "bundle": "/mnt/c/Users/91354/Projects/gpu-qp-benchmark/qp_benchmark_v2_20261102",
+ "timed_transitions": 1920,
+ "setup": {
+  "version": "0.1.0 (cuDSS 0.8.0)",
+  "graph_mode": "auto",
+  "custom_spmv": false,
+  "staged_inputs": false,
+  "kkt_backend": "reduced",
+  "repeats": 20,
+  "groups": [
+   {
+    "file": "group_0.bin",
+    "n": 169,
+    "p": 64,
+    "m": 2521,
+    "nnz": [
+     8977,
+     920,
+     249801
+    ],
+    "cases": 64,
+    "setup_ms": 13.3462,
+    "first_solve_incl_capture_ms": 33.3224,
+    "counters_setup_and_first_solve": {
+     "host_syncs": 1,
+     "graph_launches": 1,
+     "graph_captures": 1,
+     "cudss_device_allocs": 0,
+     "cudss_device_frees": 0,
+     "cudss_analysis_calls": 0,
+     "updates": 0,
+     "solves": 1
+    },
+    "counters_steady_state": {
+     "host_syncs": 2560,
+     "graph_launches": 2560,
+     "graph_captures": 0,
+     "cudss_device_allocs": 0,
+     "cudss_device_frees": 0,
+     "cudss_analysis_calls": 0,
+     "updates": 2560,
+     "solves": 2560
+    }
+   }
+  ],
+  "timed_transitions": 1920
+ },
+ "modes": {
+  "gpu_resident": {
+   "samples": 960,
+   "valid_3e4": 960,
+   "valid_1e6": 960,
+   "statuses": {
+    "CUPIQP_SOLVED": 960
+   },
+   "cpu_x_ready_wall_ms": {
+    "n": 960,
+    "p50": 10.867851,
+    "p95": 11.71332875,
+    "p99": 12.087292609999999,
+    "max": 12.145156
+   },
+   "upload_event_ms": {
+    "n": 960,
+    "p50": 0.00576,
+    "p95": 0.007939199999999997,
+    "p99": 0.023259839999999993,
+    "max": 0.032128
+   },
+   "update_event_ms": {
+    "n": 960,
+    "p50": 0.907952,
+    "p95": 0.9592832,
+    "p99": 1.00507968,
+    "max": 1.367008
+   },
+   "solve_event_ms": {
+    "n": 960,
+    "p50": 9.930240000000001,
+    "p95": 10.7284992,
+    "p99": 11.106304,
+    "max": 11.144192
+   },
+   "x_download_event_ms": {
+    "n": 960,
+    "p50": 0.038224,
+    "p95": 0.062496,
+    "p99": 0.07548703999999998,
+    "max": 0.115904
+   },
+   "gpu_x_ready_event_ms": {
+    "n": 960,
+    "p50": 10.847264,
+    "p95": 11.6965376,
+    "p99": 12.06928192,
+    "max": 12.13136
+   },
+   "iterations": {
+    "n": 960,
+    "p50": 24.5,
+    "p95": 27.0,
+    "p99": 28.0,
+    "max": 28.0
+   }
+  },
+  "host_values": {
+   "samples": 960,
+   "valid_3e4": 960,
+   "valid_1e6": 960,
+   "statuses": {
+    "CUPIQP_SOLVED": 960
+   },
+   "cpu_x_ready_wall_ms": {
+    "n": 960,
+    "p50": 10.939171,
+    "p95": 11.804691550000001,
+    "p99": 12.16500036,
+    "max": 12.223565
+   },
+   "upload_event_ms": {
+    "n": 960,
+    "p50": 0.08608,
+    "p95": 0.089888,
+    "p99": 0.10843551999999998,
+    "max": 0.128992
+   },
+   "update_event_ms": {
+    "n": 960,
+    "p50": 0.904848,
+    "p95": 0.965416,
+    "p99": 0.9997683199999998,
+    "max": 1.24976
+   },
+   "solve_event_ms": {
+    "n": 960,
+    "p50": 9.92512,
+    "p95": 10.724352,
+    "p99": 11.104256,
+    "max": 11.15136
+   },
+   "x_download_event_ms": {
+    "n": 960,
+    "p50": 0.039824,
+    "p95": 0.06314239999999999,
+    "p99": 0.07825695999999997,
+    "max": 0.112608
+   },
+   "gpu_x_ready_event_ms": {
+    "n": 960,
+    "p50": 10.92552,
+    "p95": 11.783576,
+    "p99": 12.14653056,
+    "max": 12.207008
+   },
+   "iterations": {
+    "n": 960,
+    "p50": 24.5,
+    "p95": 27.0,
+    "p99": 28.0,
+    "max": 28.0
+   }
+  }
+ }
+}

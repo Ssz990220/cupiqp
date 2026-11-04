@@ -50,11 +50,17 @@ numerically neutral (verified by tests) or is reported with its measured effect.
 
 - `Settings::custom_spmv`: deterministic custom CSR/CSC SpMV kernels
   (2.4-7.7x faster than cuSPARSE in graph replay, within 1e-14 relative).
-- `GraphMode::SolveGraphDeviceLoop` (experimental): whole solve in one CUDA
-  graph. cuDSS's two pageable 8-byte SOLVE memcpy nodes are re-pointed to
-  pinned snapshots. A capture-time self-test (two captures must agree) is
-  required, as is cuDSS 0.8. Otherwise the solver falls back to the default
-  mode. This relies on undocumented cuDSS internals.
+- `GraphMode::SolveGraphDeviceLoop`: whole solve in one CUDA graph.
+  - **Default (`Auto`) for `kkt_backend = Reduced`** since 2026-11-03. No cuDSS is
+    involved, so there are no undocumented internals and no patching.
+  - Opt-in with cuDSS: cuDSS's two pageable 8-byte SOLVE memcpy nodes are
+    re-pointed to pinned snapshots. A capture-time self-test (two captures must
+    agree) is required, as is cuDSS 0.8; otherwise the solver falls back to the
+    per-iteration graph mode. This relies on undocumented cuDSS internals.
+  - The reference has no whole-solve graph for its sparse backend (it uses one
+    graph per iteration with a host loop). The same operations run in the same
+    order in every mode; with the deterministic custom SpMV the results are bitwise
+    equal across modes (test `SolverReduced.AutoModeRunsTheWholeSolveAsOneGraph`).
 
 - `Settings::kkt_backend = KktBackend::Reduced` (added 2026-11-03,
   `native/docs/modules/reduced_kkt_backend.md`): dense Schur complement

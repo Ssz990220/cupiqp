@@ -33,7 +33,7 @@ ap.add_argument("--dataset", choices=("mpc", "trajopt"), default="mpc")
 ap.add_argument("--output", type=Path, required=True)
 ap.add_argument("--eps", type=float, default=1e-8)
 ap.add_argument("--native-build", type=Path, default=REPO / "build" / "native")
-ap.add_argument("--graph-mode", choices=("iteration", "device", "none"), default="iteration")
+ap.add_argument("--graph-mode", choices=("auto", "iteration", "device", "none"), default="auto")
 ap.add_argument("--kkt-backend", choices=("cudss", "reduced"), default="cudss")
 ap.add_argument("--custom-spmv", action="store_true")
 args = ap.parse_args()
@@ -93,7 +93,7 @@ s.settings.eps_rel = s.settings.eps_duality_gap_rel = 0.0
 s.settings.enable_cuda_graph = True
 s.settings.verbose = False
 if args.backend == "native":
-    s.settings.graph_mode = {"iteration": mod.GraphMode.IterationGraphHostLoop,
+    s.settings.graph_mode = {"auto": mod.GraphMode.Auto, "iteration": mod.GraphMode.IterationGraphHostLoop,
                              "device": mod.GraphMode.SolveGraphDeviceLoop, "none": mod.GraphMode.None_}[args.graph_mode]
     s.settings.enable_cuda_graph = args.graph_mode != "none"
     s.settings.kkt_backend = args.kkt_backend

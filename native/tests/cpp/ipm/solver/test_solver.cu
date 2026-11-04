@@ -601,3 +601,48 @@ TEST(SolverReduced, FactorFailureRetriesThenRecoversOrReportsNumericalIssues) {
     }
   }
 }
+
+TEST(SolverReduced, AutoModeRunsTheWholeSolveAsOneGraph) {
+  HostQp q = random_qp(30, 6, 25, 77);
+  DeviceQp d(q);
+  // Reference result with an explicit per-iteration graph mode (still honoured).
+  SparseSolver it = make_solver(q, d, GraphMode::IterationGraphHostLoop, KktBackend::Reduced, true);
+  it.solve();
+  Info ii = it.info();
+  ASSERT_EQ(ii.status, Status::Solved);
+  const auto xi = host_x(it);
+
+  SparseSolver aut = make_solver(q, d, GraphMode::Auto, KktBackend::Reduced, true);
+  aut.solve();  // first solve captures the whole-solve graph
+  ASSERT_EQ(aut.info().status, Status::Solved);
+  for (int rep = 0; rep < 3; ++rep) {
+    const Counters c0 = aut.counters();
+    aut.solve();
+    CUPIQP_CUDA_CHECK(cudaStreamSynchronize(aut.stream()));
+    const Counters c1 = aut.counters();
+    EXPECT_EQ(c1.graph_launches - c0.graph_launches, 1) << "one graph launch per solve";
+    EXPECT_EQ(c1.host_syncs - c0.host_syncs, 0) << "no host loop inside the solve";
+    EXPECT_EQ(c1.graph_captures, c0.graph_captures);
+    Info ia = aut.info();
+    ASSERT_EQ(ia.status, Status::Solved);
+    EXPECT_EQ(ia.iter, ii.iter);
+    // With the deterministic custom SpMV the modes agree bitwise.
+    EXPECT_EQ(max_abs_diff(host_x(aut), xi), 0.0);
+  }
+}
+
+TEST(Solver, CudssAutoModeStillUsesIterationGraphs) {
+  HostQp q = random_qp(20, 4, 15, 78);
+  DeviceQp d(q);
+  SparseSolver s = make_solver(q, d, GraphMode::Auto);
+  s.solve();
+  ASSERT_EQ(s.info().status, Status::Solved);
+  const Counters c0 = s.counters();
+  s.solve();
+  CUPIQP_CUDA_CHECK(cudaStreamSynchronize(s.stream()));
+  const Counters c1 = s.counters();
+  const Info info = s.info();
+  // prelude + one graph per iteration + finalize; one host check per iteration
+  EXPECT_EQ(c1.graph_launches - c0.graph_launches, info.iter + 2);
+  EXPECT_GE(c1.host_syncs - c0.host_syncs, info.iter);
+}

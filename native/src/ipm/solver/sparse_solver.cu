@@ -599,7 +599,15 @@ class SparseSolverImpl {
     // the sparse backend cannot capture -> no graph.
     if (settings.verbose) return GraphMode::None;
     GraphMode m = settings.graph_mode;
-    if (m == GraphMode::Auto) m = settings.enable_cuda_graph ? GraphMode::IterationGraphHostLoop : GraphMode::None;
+    if (m == GraphMode::Auto) {
+      // Auto: the whole solve in one CUDA graph for the reduced backend (no cuDSS,
+      // so no memcpy patching is involved); one graph per IPM iteration with the
+      // host-driven loop for cuDSS (its SOLVE cannot run in a conditional node
+      // without the patch, see FEASIBILITY.md 3.3).
+      if (!settings.enable_cuda_graph) m = GraphMode::None;
+      else if (settings.kkt_backend == KktBackend::Reduced) m = GraphMode::SolveGraphDeviceLoop;
+      else m = GraphMode::IterationGraphHostLoop;
+    }
     if (m != GraphMode::None && settings.iterative_refinement_always_enabled) return GraphMode::None;
     if (m == GraphMode::SolveGraphDeviceLoop && solve_graph_failed_) return GraphMode::IterationGraphHostLoop;
     return m;
@@ -633,6 +641,21 @@ class SparseSolverImpl {
     };
     std::vector<CudaPinnedBuffer<unsigned char>> keep_a, keep_b;
     const int64_t allocs_before = counters_.cudss_device_allocs;
+    if (settings.kkt_backend == KktBackend::Reduced) {
+      // No cuDSS in the graph: one capture, nothing to patch.
+      cudaGraph_t g = capture(s, body, &counters_);
+      if (counters_.cudss_device_allocs != allocs_before) {
+        cudaGraphDestroy(g);
+        solve_graph_failed_ = true;
+        return;
+      }
+      try {
+        solve_graph_.instantiate(g);
+      } catch (const Error&) {
+        solve_graph_failed_ = true;
+      }
+      return;
+    }
     cudaGraph_t ga = capture(s, body, &counters_);
     cudaGraph_t gb = capture(s, body, &counters_);
     if (counters_.cudss_device_allocs != allocs_before) {  // allocation nodes: not relaunchable

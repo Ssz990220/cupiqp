@@ -304,3 +304,23 @@ Maros-Meszaros, reduced backend, 3 runs: 89 passed, 0 failed, 49 skipped
 (n > 2048) in every run before and after. Real-state accuracy within the
 run-to-run noise of the states. Tests: ctest 141 / 141, pytest 1,246,
 upstream 7 passed / 3 skipped with either backend.
+
+## 13. Whole-solve graph is the default for the reduced backend (2026-11-04)
+
+With `kkt_backend = Reduced`, `GraphMode::Auto` now selects
+`SolveGraphDeviceLoop`: the whole solve is one CUDA graph launch with no host
+loop. The reduced backend does not use cuDSS, so none of the cuDSS memcpy
+patching applies. With cuDSS, `Auto` still means one graph per iteration and
+the whole-solve graph stays opt-in. Verbose mode and iterative refinement
+still select no graphs, and an explicit `graph_mode` is honoured. The
+benchmarks now default to `--graph-mode auto` like the library.
+
+Same session, native C++ replay, 20 repeats, gpu_resident, every transition
+SOLVED and KKT@1e-6, iteration statistics unchanged
+(`native/bench/results/reduced-auto-wholegraph-20261103`):
+
+| Configuration | graph launches / solve | MPC p50 / P95 (ms) | Trajopt p50 / P95 (ms) |
+|---|---|---|---|
+| cuDSS, Auto (control) | 26.65 / 29.20 | 35.98 / 39.34 | 39.89 / 46.12 |
+| Reduced, per-iteration graph | 26.64 / 29.22 | 12.31 / 13.30 | 16.16 / 18.32 |
+| **Reduced, Auto (whole-solve graph)** | **1.00** | **10.87 / 11.71** | **14.41 / 16.39** |
