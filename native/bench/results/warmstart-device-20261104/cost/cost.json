@@ -1,0 +1,112 @@
+{
+ "fixed:cold solve()": {
+  "wall_ms": 0.866223,
+  "gpu_ms": 0.844543993473053,
+  "iter": [
+   1
+  ],
+  "graph_launches": 1,
+  "graph_captures": 0,
+  "host_syncs": 0
+ },
+ "fixed:warm identity": {
+  "wall_ms": 0.5274909999999999,
+  "gpu_ms": 0.5068639814853668,
+  "iter": [
+   1
+  ],
+  "graph_launches": 1,
+  "graph_captures": 0,
+  "host_syncs": 0,
+  "h2d_bytes_per_solve": 0
+ },
+ "fixed:warm pair_block": {
+  "wall_ms": 0.5192859999999999,
+  "gpu_ms": 0.49908800423145294,
+  "iter": [
+   1
+  ],
+  "graph_launches": 1,
+  "graph_captures": 0,
+  "host_syncs": 0,
+  "h2d_bytes_per_solve": 6016
+ },
+ "fixed:warm pair_block (device keys)": {
+  "wall_ms": 0.5276559999999999,
+  "gpu_ms": 0.5071679949760437,
+  "iter": [
+   1
+  ],
+  "graph_launches": 1,
+  "graph_captures": 0,
+  "host_syncs": 0,
+  "h2d_bytes_per_solve": 0
+ },
+ "fixed:warm pair": {
+  "wall_ms": 0.5574325,
+  "gpu_ms": 0.5374239981174469,
+  "iter": [
+   1
+  ],
+  "graph_launches": 1,
+  "graph_captures": 0,
+  "host_syncs": 0,
+  "h2d_bytes_per_solve": 9024
+ },
+ "fixed:warm pair (device keys)": {
+  "wall_ms": 0.5550634999999999,
+  "gpu_ms": 0.5347039997577667,
+  "iter": [
+   1
+  ],
+  "graph_launches": 1,
+  "graph_captures": 0,
+  "host_syncs": 0,
+  "h2d_bytes_per_solve": 0
+ },
+ "fixed:warm label": {
+  "wall_ms": 0.599061,
+  "gpu_ms": 0.5785920023918152,
+  "iter": [
+   1
+  ],
+  "graph_launches": 1,
+  "graph_captures": 0,
+  "host_syncs": 0,
+  "h2d_bytes_per_solve": 51080
+ },
+ "fixed:warm label (device keys)": {
+  "wall_ms": 0.5930755,
+  "gpu_ms": 0.5730559825897217,
+  "iter": [
+   1
+  ],
+  "graph_launches": 1,
+  "graph_captures": 0,
+  "host_syncs": 0,
+  "h2d_bytes_per_solve": 0
+ },
+ "full:pair K=0 back=0": {
+  "wall_ms": 4.579288,
+  "gpu_ms": 4.584447860717773,
+  "iter": [
+   11
+  ]
+ },
+ "full:pair K=8 back=0": {
+  "wall_ms": 4.587063,
+  "gpu_ms": 4.592639923095703,
+  "iter": [
+   11
+  ]
+ },
+ "full:pair K=8 back=8": {
+  "wall_ms": 4.587774,
+  "gpu_ms": 4.592639923095703,
+  "iter": [
+   11
+  ]
+ },
+ "ring_us_per_iteration_gpu": 0.7447329434481534,
+ "ring_us_per_iteration_wall": 0.7068181818181494
+}

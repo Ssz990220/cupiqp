@@ -1,1 +1,3 @@
 cupiqp_add_test(test_solver test_solver.cu)
+cupiqp_add_test(test_warm_start test_warm_start.cu)
+cupiqp_add_test(test_warm_start_device test_warm_start_device.cu)

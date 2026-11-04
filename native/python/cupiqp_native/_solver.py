@@ -32,6 +32,8 @@ class Status(IntEnum):
 
 
 GraphMode = _ext.GraphMode
+RowMatch = _ext.RowMatch
+WarmStartOptions = _ext.WarmStartOptions
 
 # Reference Settings fields that only exist for unsupported features; setting
 # them to a non-default value is rejected at setup().
@@ -338,3 +340,109 @@ class SparseSolver:
         self._enter()
         self._native.solve()
         self._exit()
+
+    # ------------------------------------------------------------- warm start (experimental)
+    _WARM_BITS = {"x": 1, "y": 2, "s": 4, "z": 8}
+
+    def warm_start_buffers(self, host=True) -> dict:
+        """EXPERIMENTAL. Solver-owned staging buffers for an initial point in
+        the user (unscaled) coordinates: ``{name: array}`` for x, y, s_l, s_u,
+        s_bl, s_bu, z_l, z_u, z_bl, z_bu (present ones only). ``host=True``
+        gives zero-copy NumPy views of pinned host memory (use with
+        ``solve_warm(from_host=True)``); ``host=False`` gives Warp device
+        arrays. s and z must be strictly positive on finite bounds."""
+        if self._sizes is None:
+            raise RuntimeError("Solver not setup yet. Call setup() first.")
+        attr = "_warm_host" if host else "_warm_dev"
+        if not hasattr(self, attr):
+            out = {}
+            for k, (ptr, n) in self._native.warm_start_buffers(bool(host)).items():
+                if not n:
+                    continue
+                if host:
+                    import ctypes
+                    buf = (ctypes.c_double * n).from_address(ptr)
+                    out[k] = np.frombuffer(buf, dtype=np.float64, count=n)
+                else:
+                    out[k] = wrap(ptr, (n,), owner=self)
+            setattr(self, attr, out)
+        return getattr(self, attr)
+
+    def solve_warm(self, fields="xysz", from_host=True):
+        """EXPERIMENTAL. Solve from the staged initial point. ``fields`` names
+        the parts taken from the staged start (any of "x", "y", "s", "z");
+        the other parts come from the default initial guess. The proximal
+        centers start at the resulting point. One CUDA graph per
+        (fields, from_host) pair, captured on first use."""
+        if self._sizes is None:
+            raise RuntimeError("Solver not setup yet. Call setup() first.")
+        bits = 0
+        for ch in fields:
+            bits |= self._WARM_BITS[ch]
+        self._enter()
+        self._native.solve_warm(bits, bool(from_host))
+        self._exit()
+
+    # ------------------------------------------------------------- warm start from the previous solve
+    def set_warm_start(self, options=None, **fields):
+        """Enable warm starting from the previous solve and set its options.
+
+        ``options`` is a ``WarmStartOptions`` (defaults: x = 0, y from the
+        previous solve, s from the new bounds at x = 0 with s >= 0.1, z from the
+        previous solve with z >= 1e-4, identity row matching, no snapshot);
+        keyword arguments override single fields, e.g.
+        ``set_warm_start(s_min=0.1, row_match=RowMatch.Keys, key_row_begin=1569,
+        key_row_count=752, row_groups=True)``. Allocates the feature's buffers;
+        call it outside a timed loop. The next ``solve_warm_start()`` is cold.
+        """
+        if self._sizes is None:
+            raise RuntimeError("Solver not setup yet. Call setup() first.")
+        o = options if options is not None else WarmStartOptions()
+        for k, v in fields.items():
+            setattr(o, k, v)
+        self._enter()
+        self._native.set_warm_start(o)
+        self._exit()
+        for attr in ("_row_keys_host", "_row_keys_dev"):
+            if hasattr(self, attr):
+                delattr(self, attr)
+
+    def row_key_buffers(self, host=True) -> dict:
+        """Staging of the row keys of the next QP: ``{"keys": int64 array,
+        "groups": int32 array or None}``, one entry per keyed row. ``host=True``
+        gives NumPy views of pinned host memory (use with
+        ``solve_warm_start(keys_from_host=True)``), ``host=False`` Warp device
+        arrays (write them on the solver's stream, then
+        ``solve_warm_start(keys_from_host=False)``)."""
+        attr = "_row_keys_host" if host else "_row_keys_dev"
+        if not hasattr(self, attr):
+            import ctypes
+            import warp as wp
+            out = {}
+            for k, (ptr, n) in self._native.row_key_buffers(bool(host)).items():
+                dt_np, dt_c, dt_wp = (np.int64, ctypes.c_int64, wp.int64) if k == "keys" else \
+                    (np.int32, ctypes.c_int32, wp.int32)
+                if not n:
+                    out[k] = None
+                elif host:
+                    out[k] = np.frombuffer((dt_c * n).from_address(ptr), dtype=dt_np, count=n)
+                else:
+                    out[k] = wp.array(ptr=ptr, dtype=dt_wp, shape=(n,), device="cuda:0")
+            setattr(self, attr, out)
+        return getattr(self, attr)
+
+    def solve_warm_start(self, keys_from_host=True):
+        """Solve, starting from the previous ``solve_warm_start()`` result
+        (built on the device inside the one CUDA graph of the solve). The
+        first call after ``set_warm_start()``, ``reset_warm_start()``,
+        ``solve()`` or ``solve_warm()`` is a cold solve; a solve whose
+        predecessor did not report Solved starts cold as well."""
+        if self._sizes is None:
+            raise RuntimeError("Solver not setup yet. Call setup() first.")
+        self._enter()
+        self._native.solve_warm_start(bool(keys_from_host))
+        self._exit()
+
+    def reset_warm_start(self):
+        """Make the next ``solve_warm_start()`` cold (start of a new sequence)."""
+        self._native.reset_warm_start()
