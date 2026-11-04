@@ -42,7 +42,7 @@ def category(name: str) -> str:
     if "cudss::" in name:
         return "cuDSS solve"
     if "reduced_kkt" in name:
-        if any(k in name for k in ("weights_kernel", "assemble_kernel")):
+        if any(k in name for k in ("weights_kernel", "assemble_kernel", "compact_", "reduce_split_rows")):
             return "reduced: assembly"
         if "chol_" in name:
             return "reduced: Cholesky"
