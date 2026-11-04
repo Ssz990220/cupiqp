@@ -55,7 +55,7 @@ parser.add_argument("--dataset", choices=("mpc", "trajopt"), default="mpc")
 parser.add_argument("--repeats", type=int, default=20)
 parser.add_argument("--output", type=Path, required=True)
 parser.add_argument("--native-build", type=Path, default=REPO / "build" / "native")
-parser.add_argument("--graph-mode", choices=("iteration", "device", "none"), default="iteration",
+parser.add_argument("--graph-mode", choices=("auto", "iteration", "device", "none"), default="auto",
                     help="native only: GraphMode (iteration = reference default)")
 parser.add_argument("--custom-spmv", action="store_true", help="native only: deterministic custom SpMV")
 parser.add_argument("--kkt-backend", choices=("cudss", "reduced"), default="cudss",
@@ -155,7 +155,7 @@ class Group:
         s.settings.verbose = False
         s.settings.preconditioner_reuse_on_update = False
         if args.backend == "native":
-            s.settings.graph_mode = {"iteration": backend_mod.GraphMode.IterationGraphHostLoop,
+            s.settings.graph_mode = {"auto": backend_mod.GraphMode.Auto, "iteration": backend_mod.GraphMode.IterationGraphHostLoop,
                                      "device": backend_mod.GraphMode.SolveGraphDeviceLoop,
                                      "none": backend_mod.GraphMode.None_}[args.graph_mode]
             s.settings.enable_cuda_graph = args.graph_mode != "none"

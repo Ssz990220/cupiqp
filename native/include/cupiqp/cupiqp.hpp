@@ -108,10 +108,12 @@ enum class Status : int32_t {
 const char* status_name(Status s);  // "CUPIQP_SOLVED", ... (reference names)
 
 enum class GraphMode : int32_t {
-  Auto = 0,                    // IterationGraphHostLoop if enable_cuda_graph, else None
+  Auto = 0,                    // enable_cuda_graph: SolveGraphDeviceLoop with kkt_backend = Reduced,
+                               // IterationGraphHostLoop with Cudss; otherwise None
   None = 1,                    // plain launches, host-driven loops
   IterationGraphHostLoop = 2,  // one IPM iteration per CUDA graph (reference default)
-  SolveGraphDeviceLoop = 3     // EXPERIMENTAL whole-solve graph (FEASIBILITY.md 3.3)
+  SolveGraphDeviceLoop = 3     // whole solve in one graph; with Cudss it patches cuDSS memcpy
+                               // nodes (FEASIBILITY.md 3.3, opt-in); default for Reduced
 };
 
 // Linear-solver backend of the condensed KKT system (native extension).

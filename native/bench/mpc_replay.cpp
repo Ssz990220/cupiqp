@@ -13,7 +13,9 @@
 // z = z_u - z_l of every timed transition) for the independent KKT checker.
 //
 // Usage: cupiqp_native_replay --data <export dir> --out <results dir>
-//          [--repeats 20] [--graph-mode iteration|none|device] [--custom-spmv] [--staged]
+//          [--repeats 20] [--graph-mode auto|iteration|none|device] [--custom-spmv] [--staged]
+//   --graph-mode auto (default) mirrors the library default: whole-solve graph for
+//   --kkt-backend reduced, one graph per iteration for cudss.
 //          [--kkt-backend cudss|reduced]
 //   --staged: values are written into the solver-owned input buffers before the
 //   timed interval (host_values: pinned host buffers, H2D copy inside the update graph).
@@ -311,7 +313,7 @@ int main(int argc, char** argv) {
   try {
     fs::path data, out;
     int repeats = 20;
-    std::string gm = "iteration";
+    std::string gm = "auto";
     bool custom_spmv = false, staged = false;
     std::string kkt_backend = "cudss";
     for (int i = 1; i < argc; ++i) {
@@ -330,9 +332,10 @@ int main(int argc, char** argv) {
       else throw std::runtime_error("unknown argument " + a);
     }
     if (data.empty() || out.empty()) throw std::runtime_error("--data and --out are required");
-    cupiqp::GraphMode mode = gm == "none" ? cupiqp::GraphMode::None
-                             : gm == "device" ? cupiqp::GraphMode::SolveGraphDeviceLoop
-                                              : cupiqp::GraphMode::IterationGraphHostLoop;
+    cupiqp::GraphMode mode = gm == "none"     ? cupiqp::GraphMode::None
+                             : gm == "device"   ? cupiqp::GraphMode::SolveGraphDeviceLoop
+                             : gm == "iteration" ? cupiqp::GraphMode::IterationGraphHostLoop
+                                                 : cupiqp::GraphMode::Auto;
     if (kkt_backend != "cudss" && kkt_backend != "reduced")
       throw std::runtime_error("--kkt-backend must be cudss or reduced");
     const cupiqp::KktBackend backend =

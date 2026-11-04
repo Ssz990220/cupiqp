@@ -55,10 +55,11 @@ enum class Status : int32_t { Unsolved = -1, Solved = 0, MaxIterReached = 1,
   PrimalInfeasible = 2, DualInfeasible = 3, NumericalIssues = 4 };
 
 enum class GraphMode : int32_t {
-  Auto,                    // = IterationGraphHostLoop when enable_cuda_graph, else None
+  Auto,                    // enable_cuda_graph: SolveGraphDeviceLoop with kkt_backend = Reduced,
+                           // IterationGraphHostLoop with Cudss; else None
   None,                    // plain launches, host-driven loops (reference NO_GRAPH)
   IterationGraphHostLoop,  // reference default for the sparse backend
-  SolveGraphDeviceLoop     // EXPERIMENTAL: whole solve in one graph (FEASIBILITY 3.3)
+  SolveGraphDeviceLoop     // whole solve in one graph (Cudss: memcpy patch, FEASIBILITY 3.3)
 };
 
 struct Settings { /* every field of cupiqp.Settings for FP64 with the same names and
@@ -196,7 +197,7 @@ buffer, its pattern, the right-hand side and solution buffers keep stable
 addresses. cuDSS descriptors point at them, and graphs capture them by address.
 
 CUDA Graphs
-- `IterationGraphHostLoop` (default): `_run_one_iteration` is captured once, on
+- `IterationGraphHostLoop` (`Auto` with the cuDSS backend): `_run_one_iteration` is captured once, on
   the first solve after setup, into `iteration_graph_`. That first capture is
   reported separately in benchmarks. Each solve then runs the prelude eagerly,
   followed by `while (loop_state_host[1]) { cudaGraphLaunch; memcpyAsync(loop_state -> pinned); cudaStreamSynchronize; }`.
@@ -204,10 +205,14 @@ CUDA Graphs
   matching `wp.capture_while` under capture.
 - `None`: same sequence with plain launches. Both conditional loops (retry and
   IPM) are driven from the host, as Warp's `capture_while` does outside capture.
-- `SolveGraphDeviceLoop` (experimental): the whole device solve, including the
-  IPM loop as a WHILE node, is captured once. Pageable memcpy nodes produced by
-  cuDSS SOLVE are re-pointed to pinned snapshots (FEASIBILITY 3.3), and a
-  capture-time self-test compares two snapshots. One host wait per solve.
+- `SolveGraphDeviceLoop`: the whole device solve, including the IPM loop as a
+  WHILE node, is captured once; one host wait per solve.
+  - With `kkt_backend = Reduced` it is the `Auto` choice (since 2026-11-03): no
+    cuDSS is involved, so nothing needs patching; the capture checks only that
+    no allocation node is recorded.
+  - With cuDSS it stays opt-in: pageable memcpy nodes produced by cuDSS SOLVE are
+    re-pointed to pinned snapshots (FEASIBILITY 3.3), and a capture-time
+    self-test compares two snapshots.
 - `update()` is never captured in milestone 1. It is a fixed, short sequence of
   launches with no host sync; this can be revisited after measuring.
 - Graphs are invalidated and recaptured only if settings that change the
