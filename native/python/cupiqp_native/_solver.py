@@ -36,15 +36,17 @@ GraphMode = _ext.GraphMode
 # Reference Settings fields that only exist for unsupported features; setting
 # them to a non-default value is rejected at setup().
 _UNSUPPORTED_DEFAULTS = {"enable_grad": False, "gradient_smoothing": False}
+# Reference Settings field that selects the deterministic mode of the
+# reference's sparse direct solver. The native solver has no such solver, and
+# its KKT solve and sparse products always use fixed summation orders, so the
+# field is accepted, stored and ignored (docs/design/DEVIATIONS.md section 4).
+_REFERENCE_DETERMINISTIC_FIELD = "use_deterministic_mode_for_cudss"
 # Reference Settings fields that are accepted and stored but have no effect.
 # The gradient fields belong to an unsupported feature (rejected through
-# _UNSUPPORTED_DEFAULTS above). use_deterministic_mode_for_cudss selects the
-# reference's sparse direct solver mode; the native solver has no such
-# solver, and its KKT solve and sparse products always use fixed summation
-# orders, so any value is harmless (docs/design/DEVIATIONS.md).
+# _UNSUPPORTED_DEFAULTS above).
 _IGNORED = {"gradient_smoothing_mu", "gradient_smoothing_tol", "gradient_smoothing_max_iter",
-            "gradient_on_failure", "use_deterministic_mode_for_cudss"}
-_IGNORED_DEFAULTS = {"use_deterministic_mode_for_cudss": False}
+            "gradient_on_failure", _REFERENCE_DETERMINISTIC_FIELD}
+_IGNORED_DEFAULTS = {_REFERENCE_DETERMINISTIC_FIELD: False}
 
 
 class Settings:
