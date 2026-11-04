@@ -1,0 +1,12 @@
+baseline run 1: 89 passed, 0 failed, 49 skipped
+baseline run 2: 89 passed, 0 failed, 49 skipped
+baseline run 3: 89 passed, 0 failed, 49 skipped
+final run 1: 89 passed, 0 failed, 49 skipped
+final run 2: 89 passed, 0 failed, 49 skipped
+final run 3: 89 passed, 0 failed, 49 skipped
+
+per-problem call duration final / baseline over 89 problems passing in every run:
+  median 0.800, faster (<0.97) 47, same 41, slower (>1.03) 1
+  slowest ratios: QSHARE2B 1.00 (0.03s -> 0.03s), S268 1.00 (0.01s -> 0.01s), TAME 1.00 (0.01s -> 0.01s), VALUES 1.00 (0.02s -> 0.02s), ZECEVIC2 1.00 (0.01s -> 0.01s), QSHARE1B 1.14 (0.07s -> 0.08s)
+  fastest ratios: CVXQP1_S 0.50 (0.02s -> 0.01s), CVXQP2_S 0.50 (0.02s -> 0.01s), DUAL3 0.50 (0.02s -> 0.01s), DUAL4 0.50 (0.02s -> 0.01s), DUALC5 0.50 (0.02s -> 0.01s), DUALC8 0.50 (0.02s -> 0.01s)
+  total call time baseline 6.78s, final 4.65s
