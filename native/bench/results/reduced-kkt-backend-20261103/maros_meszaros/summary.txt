@@ -1,0 +1,20 @@
+problems: 138; runs: cudss 3, reduced 3
+
+cudss run 1: 107 passed, 31 failed, 0 skipped
+cudss run 2: 108 passed, 30 failed, 0 skipped
+cudss run 3: 109 passed, 29 failed, 0 skipped
+reduced run 1: 89 passed, 0 failed, 49 skipped
+reduced run 2: 89 passed, 0 failed, 49 skipped
+reduced run 3: 89 passed, 0 failed, 49 skipped
+
+reduced skips (n > limit, same in every run): 49: AUG2D, AUG2DC, AUG2DCQP, AUG2DQP, AUG3D, AUG3DC, AUG3DCQP, AUG3DQP, BOYD1, BOYD2, CONT-050, CONT-100, CONT-101, CONT-200, CONT-201, CONT-300, CVXQP1_L, CVXQP2_L, CVXQP3_L, DTOC3, EXDATA, HUES-MOD, HUESTIS, LISWET1, LISWET10, LISWET11, LISWET12, LISWET2, LISWET3, LISWET4, LISWET5, LISWET6, LISWET7, LISWET8, LISWET9, MOSARQP1, POWELL20, QPILOTNO, QSCSD8, QSCTAP3, QSHIP04L, QSHIP08L, QSHIP08S, QSHIP12L, QSHIP12S, STADAT3, STCQP1, STCQP2, UBH1
+
+cuDSS fails in every run: 24: CONT-101, CONT-201, CONT-300, LISWET10, LISWET7, PRIMALC1, PRIMALC2, PRIMALC5, PRIMALC8, Q25FV47, QE226, QETAMACR, QFFFFF80, QISRAEL, QSC205, QSCORPIO, QSCRS8, QSCTAP1, QSCTAP2, QSHARE2B, QSHIP08L, QSHIP08S, QSHIP12L, STADAT1
+cuDSS fails in some run: 36
+reduced fails in some run: 0: 
+reduced fails always, cuDSS always solves: []
+
+on the 89 problems the reduced backend accepts:
+  cuDSS fails always: 16: PRIMALC1, PRIMALC2, PRIMALC5, PRIMALC8, Q25FV47, QE226, QETAMACR, QFFFFF80, QISRAEL, QSC205, QSCORPIO, QSCRS8, QSCTAP1, QSCTAP2, QSHARE2B, STADAT1
+  cuDSS flips: 6: PRIMAL1, QADLITTL, QAFIRO, QSCFXM1, QSHARE1B, QSIERRA
+  reduced solves all of them in every run: True

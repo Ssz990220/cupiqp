@@ -26,7 +26,7 @@ order, and every test was rerun after each merge.
 
 | Suite | Result |
 |---|---|
-| C++ (GoogleTest, all modules + solver integration) | 114 / 114 passed (2 disabled by design: cuDSS deterministic mode, a timing test) |
+| C++ (GoogleTest, all modules + solver integration) | 114 / 114 passed (2 disabled by design: cuDSS deterministic mode, a timing test); 141 / 141 with the later additions (section 11) |
 | pytest parity vs the reference components | 1,075 / 1,075 passed |
 | Upstream `tests/solver/test_sparse_solver.py` on the native solver (plugin `-p upstream_native`) | 7 passed, 3 skipped (batched, float32: outside milestone 1) |
 | Upstream Maros-Meszaros (138 problems, iterative refinement on) | Same failure set as the reference up to run-to-run variation; see DEVIATIONS.md 3 |
@@ -241,3 +241,32 @@ block per problem.
 Iteration statistics are unchanged. Min/max outputs, integer outputs, sigma
 and the corrector rhs remain bitwise equal to the reference; sums differ by
 order only (primal_obj up to 11 ulp).
+
+## 11. Reduced (Schur-complement) KKT backend (added 2026-11-03)
+
+Opt-in `Settings::kkt_backend = KktBackend::Reduced` (Python:
+`settings.kkt_backend = "reduced"`): `KktSystem` factors the dense Schur
+complement H = P + x_reg + [A; G]^T W [A; G] with custom deterministic
+kernels (sparse assembly from the KKT values, blocked Cholesky, one-block
+triangular solve) instead of cuDSS. Cholesky failures drive the factor-retry
+logic (reference dense backend semantics). n <= 2048. Design, tests and data:
+`native/docs/modules/reduced_kkt_backend.md`; raw results:
+`native/bench/results/reduced-kkt-backend-20261103/`. The default (cuDSS)
+path is unchanged.
+
+| Same-session ladder, gpu_resident, 20 repeats, end-to-end p50 (ms) | MPC | Trajopt |
+|---|---:|---:|
+| Native default (cuDSS) | 35.39 | 40.31 |
+| Native default + reduced | 14.40 | 19.25 |
+| staged + whole-solve graph + custom SpMV (cuDSS) | 29.93 | 33.98 |
+| staged + whole-solve graph + custom SpMV + reduced | 10.81 | 15.88 |
+| Reference (Warp) | 41.18 | 50.51 |
+
+All 1,920 MPC and 960 Trajopt transitions of every row pass the KKT check at
+1e-6, with the same iteration statistics as cuDSS (MPC p50 / max 24.5 / 28,
+Trajopt 30.0 or 29.5 / 36). Maros-Meszaros (3 runs per backend): the
+reduced backend solves all 89 problems with n <= 2048 in every run (49 are
+above the limit and skipped); cuDSS fails 16 of those 89 in every run and 6
+more in some runs. Tests: ctest 141 / 141, pytest 1,246, upstream
+`test_sparse_solver.py` 7 passed / 3 skipped with either backend.
+

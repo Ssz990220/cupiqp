@@ -1,0 +1,12 @@
+{
+ "utc": "2026-11-04T01:17:01Z",
+ "windows_qpc_s": 15.142688700005237,
+ "ratio_to_windows": {
+  "MONOTONIC": 0.9946925233290779,
+  "MONOTONIC_RAW": 0.9906723645450731,
+  "REALTIME": 0.9946925578380932,
+  "CUDA_EVENTS": 0.9905866656168737
+ },
+ "note": "windows interval includes two powershell launches (~0.2-0.4 s); CUDA events cover only the busy wait",
+ "cuda_events_over_monotonic_raw": 0.999913494177019
+}
