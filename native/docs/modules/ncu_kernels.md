@@ -1,5 +1,12 @@
 # Nsight Compute analysis and optimization of the reduced KKT kernels
 
+> **Record (2026-11-03).** Measurements below were taken when cuDSS was still
+> the default and the reduced solver was opt-in; the cuDSS rows are controls
+> from that time. Since 2026-11-04 the reduced solver is the only KKT solver
+> (REPORT.md section 14). `reduced_kkt_bench` no longer has a cuDSS
+> comparison or the `--no-cudss` flag.
+
+
 Brief: `native/docs/briefs/ncu_kernels.md`. Branch `perf/ncu-kernels`, from
 `native-cuda-port` at bf1ba2c. Raw data: `native/bench/results/ncu-20261103/`
 (`.ncu-rep`, `.nsys-rep` and `.sqlite` not committed). GPU: RTX 4070 SUPER

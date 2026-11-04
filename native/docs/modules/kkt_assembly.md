@@ -1,5 +1,10 @@
 # Module M4 kkt_assembly: hand-off note
 
+> **Status 2026-11-04.** The assembled KKT matrix is no longer factored by
+> cuDSS; `ReducedKktSolver` (`linalg/reduced_kkt`) reads its values through
+> index maps built from `host_maps()`. The module itself is unchanged.
+
+
 ## What is implemented
 - Host build (C++, no SciPy) of the pattern of
   `bmat([[P + I_n, None, None], [A, I_p, None], [G, None, I_m]])` after `sum_duplicates()`:

@@ -1,5 +1,11 @@
 # Brief for module agents (wave 1)
 
+Update 2026-11-04: `linalg/cudss` was removed; the KKT solver is
+`linalg/reduced_kkt` and the SpMV uses only the module's own kernels. No
+library handle (cuSPARSE, cuDSS) exists any more. The per-module briefs in
+this folder are historical task descriptions; `remove_cudss.md` is the brief
+of the removal.
+
 ## Layout (keep it this way; group new files by layer)
 
 | Path | Contents |
@@ -7,7 +13,7 @@
 | `native/include/cupiqp/` | public C++ API |
 | `native/src/common/` | buffers, error checks, CUDA graph helpers, reductions, shared views |
 | `native/src/problem/{data,ruiz}/` | problem storage; Ruiz scaling |
-| `native/src/linalg/{spmv,cudss,kkt_assembly,kkt_system}/` | sparse products; cuDSS; KKT matrix; condensed KKT solve |
+| `native/src/linalg/{spmv,kkt_assembly,reduced_kkt,kkt_system}/` | sparse products; KKT matrix; Schur-complement KKT solver; condensed KKT solve |
 | `native/src/ipm/{kernels,solver}/` | interior-point kernels; solver orchestration |
 | `native/python/bindings/` | nanobind C++ sources (`bind_<module>.cpp`) |
 | `native/python/cupiqp_native/` | Python package |
@@ -67,8 +73,7 @@ locally.
 ## Conventions
 - C++17/CUDA 13.2, namespace `cupiqp`. Kernels templated on `T`; instantiate
   `double`. Every function that enqueues GPU work takes `cudaStream_t s` and uses
-  only it (library handles: call `cusparseSetStream`/`cudssSetStream` with `s` on
-  every call). No allocation or synchronization outside `init()`/setup paths.
+  only it. No allocation or synchronization outside `init()`/setup paths.
 - RAII: `CudaBuffer<T>`, `CudaPinnedBuffer<T>`, `CudaStream`, `CudaEvent`
   (`src/common/*`). Check every API call with `CUPIQP_*_CHECK`; check launches
   with `CUPIQP_CUDA_CHECK_LAUNCH()`.
