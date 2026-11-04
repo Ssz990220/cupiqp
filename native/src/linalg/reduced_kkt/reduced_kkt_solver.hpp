@@ -76,6 +76,9 @@ class ReducedKktSolver : public KktLinearSolver {
   CudaBuffer<int32_t> Cc_, pre_;
   CudaBuffer<double> w_, H_, dinv_, rhs_, sol_, ws_;
   CudaBuffer<int32_t> status_;
+  // Multi-block triangular solve: ticket counter (task + epoch) and flags.
+  CudaBuffer<unsigned long long> trsv_ticket_;
+  CudaBuffer<uint32_t> trsv_flags_;
 };
 
 }  // namespace cupiqp

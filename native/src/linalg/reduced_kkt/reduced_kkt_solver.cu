@@ -13,8 +13,6 @@ namespace {
 
 using namespace reduced_kkt;
 
-constexpr int kTrsvBlock = 512;
-
 template <class T>
 void upload(CudaBuffer<T>& d, const std::vector<T>& h, cudaStream_t s) {
   d.allocate(std::max<size_t>(h.size(), 1));
@@ -181,11 +179,11 @@ void ReducedKktSolver::init(const KktHostMaps& maps, const int32_t* d_indices, d
     case 2: set_assembly_smem<2>(assembly_smem_); break;
     default: set_assembly_smem<1>(assembly_smem_); break;
   }
-  const size_t trsv_smem = size_t(n) * sizeof(double);
-  CUPIQP_REQUIRE(trsv_smem <= size_t(optin), "ReducedKktSolver::init: n too large for the triangular solve");
-  if (trsv_smem > 48 * 1024)
-    CUPIQP_CUDA_CHECK(cudaFuncSetAttribute(trsv_kernel<kTrsvBlock>, cudaFuncAttributeMaxDynamicSharedMemorySize,
-                                           int(trsv_smem)));
+  // Triangular-solve dataflow: ticket counter and one flag per task (2N).
+  trsv_ticket_.allocate(1);
+  trsv_ticket_.zero_async(s);
+  trsv_flags_.allocate(size_t(2) * ((n + kTile - 1) / kTile));
+  trsv_flags_.zero_async(s);
 }
 
 void ReducedKktSolver::assemble(cudaStream_t s) {
@@ -243,8 +241,9 @@ void ReducedKktSolver::solve(cudaStream_t s) {
   reduce_rhs_kernel<<<n_, kRhsBlock, 0, s>>>(K_, w_.data(), Cptr_.data(), Crow_.data(),
                                                            Cslot_.data(), rhs_.data(), n_, sol_.data());
   CUPIQP_CUDA_CHECK_LAUNCH();
-  trsv_kernel<kTrsvBlock><<<1, kTrsvBlock, size_t(n_) * sizeof(double), s>>>(H_.data(), dinv_.data(), n_,
-                                                                              sol_.data());
+  const int N = (n_ + kTile - 1) / kTile;
+  trsv_flow_kernel<<<2 * N, kTile, 0, s>>>(H_.data(), dinv_.data(), n_, sol_.data(), trsv_ticket_.data(),
+                                           trsv_flags_.data());
   CUPIQP_CUDA_CHECK_LAUNCH();
   if (mm_ > 0) {
     recover_kernel<<<int((int64_t(mm_) * 32 + 255) / 256), 256, 0, s>>>(K_, Kidx_, w_.data(), Kbase_.data(),

@@ -288,97 +288,122 @@ __global__ void __launch_bounds__(kRhsBlock) reduce_rhs_kernel(
   }
 }
 
-// In place x <- L^-T L^-1 x (x of length n), one block, x staged in shared
-// memory. Per 32-row tile: one warp solves the diagonal block (lane = row,
-// shuffles; the n-step substitution chain), then the whole block applies the
-// panel to the remaining entries with 4 threads per entry, each summing 8
-// panel columns, combined by a fixed shuffle butterfly (deterministic).
-// Forward reads columns of L (coalesced over rows); backward reads rows of
-// the tile (contiguous 8-entry runs of L's columns).
-template <int BLOCK>
-__global__ void __launch_bounds__(BLOCK) trsv_kernel(const double* __restrict__ L, const double* __restrict__ dinv,
-                                                     int n, double* __restrict__ x) {
-  extern __shared__ double xs[];  // n
-  constexpr int kPer = 4, kSeg = kTile / kPer, kItems = BLOCK / kPer;
-  const int tid = threadIdx.x, lane = tid % 32, warp = tid / 32;
-  const int q = tid % kPer, item = tid / kPer;
-  for (int i = tid; i < n; i += BLOCK) xs[i] = x[i];
-  __syncthreads();
-  const int N = (n + kTile - 1) / kTile;
-  // Forward: L y = b.
-  for (int kk = 0; kk < N; ++kk) {
-    const int g0 = kk * kTile, gi = g0 + lane;
-    if (warp == 0) {
-      // z_c = L_cc y_c satisfies z_c = b_c - sum_{t<c} (L_ct / L_tt) z_t: the
-      // chain is one shuffle and one FMA per column; y = z / L_cc afterwards.
-      double l[kTile];
-#pragma unroll
-      for (int c = 0; c < kTile; ++c)
-        l[c] = (gi < n && c < lane) ? L[size_t(g0 + c) * n + gi] * dinv[g0 + c] : 0.0;
-      double z = gi < n ? xs[gi] : 0.0;
-#pragma unroll
-      for (int c = 0; c < kTile - 1; ++c) {
-        const double zc = __shfl_sync(0xffffffffu, z, c);
-        if (lane > c) z = fma(-l[c], zc, z);
-      }
-      if (gi < n) xs[gi] = z * dinv[gi];
+// Inter-block flags of the multi-block triangular solve: release / acquire
+// at GPU scope (the data a flag publishes is read with __ldcg, bypassing L1).
+__device__ __forceinline__ uint32_t ld_acquire_gpu(const uint32_t* p) {
+  uint32_t v;
+  asm volatile("ld.acquire.gpu.global.u32 %0, [%1];" : "=r"(v) : "l"(p) : "memory");
+  return v;
+}
+__device__ __forceinline__ void st_release_gpu(uint32_t* p, uint32_t v) {
+  asm volatile("st.release.gpu.global.u32 [%0], %1;" ::"l"(p), "r"(v) : "memory");
+}
+// Warp-wide wait until *f == epoch (lane 0 polls).
+__device__ __forceinline__ void warp_wait_flag(const uint32_t* f, uint32_t epoch, int lane) {
+  if (lane == 0)
+    while (ld_acquire_gpu(f) != epoch) {
     }
-    __syncthreads();
-    const int c0 = g0 + q * kSeg;
-    double xv[kSeg];
+  __syncwarp();
+}
+
+// In place x <- L^-T L^-1 x (x of length n) as a dataflow over 32-row tiles,
+// one warp per block and 2N blocks (N = ceil(n / 32)): tasks 0 .. N-1 are the
+// forward tiles 0 .. N-1, tasks N .. 2N-1 the backward tiles N-1 .. 0. A
+// block takes its task from a ticket counter (atomicAdd), so every task it
+// waits for belongs to a block that is already running (no deadlock whatever
+// the residency or block order); the ticket also gives the epoch, so the
+// flags never need resetting (flag value = epoch when the tile is published).
+// Forward tile b: z = b_b - sum_{t<b} L_bt y_t (tiles taken in ascending t as
+// their flags appear, the tile of L prefetched before the wait; lane = row,
+// 4 interleaved accumulators), then the diagonal substitution in the scaled,
+// division-free form z_c = b_c - sum_{t<c} (L_ct / L_tt) z_t (one shuffle +
+// one FMA per column), y = z / L_cc. Backward tile b: same with L^T (lane =
+// column of L, t descending). Fixed summation order: deterministic. Every
+// value written to x is published by its tile's flag; x is updated in place
+// (a forward tile is only overwritten by its backward task, which starts
+// after every forward task has consumed it).
+__global__ void __launch_bounds__(32) trsv_flow_kernel(const double* __restrict__ L, const double* __restrict__ dinv,
+                                                       int n, double* __restrict__ x,
+                                                       unsigned long long* __restrict__ ticket,
+                                                       uint32_t* __restrict__ flags) {
+  const int lane = threadIdx.x, N = (n + kTile - 1) / kTile;
+  unsigned long long tk = 0;
+  if (lane == 0) tk = atomicAdd(ticket, 1ull);
+  tk = __shfl_sync(0xffffffffu, tk, 0);
+  const int task = int(tk % (unsigned long long)(2 * N));
+  const uint32_t epoch = uint32_t(tk / (unsigned long long)(2 * N)) + 1u;
+  const bool fwd = task < N;
+  const int b = fwd ? task : 2 * N - 1 - task, b0 = b * kTile, gi = b0 + lane;
+  const bool in = gi < n;
+  // Scaled diagonal tile: forward l[c] = L(gi, b0 + c) / L(b0 + c, b0 + c) for
+  // c < lane; backward l[c] = L(b0 + c, gi) / L(b0 + c, b0 + c) for c > lane.
+  double l[kTile];
 #pragma unroll
-    for (int c = 0; c < kSeg; ++c) xv[c] = c0 + c < n ? xs[c0 + c] : 0.0;
-    for (int base = g0 + kTile; base < n; base += kItems) {
-      const int i = base + item;
-      double s = 0.0;
-      if (i < n) {
-#pragma unroll
-        for (int c = 0; c < kSeg; ++c)
-          if (c0 + c < n) s = fma(L[size_t(c0 + c) * n + i], xv[c], s);
-      }
-      s += __shfl_xor_sync(0xffffffffu, s, 1);
-      s += __shfl_xor_sync(0xffffffffu, s, 2);
-      if (q == 0 && i < n) xs[i] -= s;
+  for (int c = 0; c < kTile; ++c) {
+    const int gc = b0 + c;
+    l[c] = 0.0;
+    if (fwd) {
+      if (in && c < lane) l[c] = L[size_t(gc) * n + gi] * dinv[gc];
+    } else {
+      if (in && c > lane && gc < n) l[c] = L[size_t(gi) * n + gc] * dinv[gc];
     }
-    __syncthreads();
   }
-  // Backward: L^T x = y.
-  for (int kk = N - 1; kk >= 0; --kk) {
-    const int g0 = kk * kTile, gi = g0 + lane;
-    if (warp == 0) {
-      // u_c = L_cc x_c satisfies u_c = y_c - sum_{t>c} (L_tc / L_tt) u_t.
-      double l[kTile];  // l[c] = L(g0 + c, gi) / L(g0 + c, g0 + c) for c > lane
+  const double di = in ? dinv[gi] : 0.0;
+  double a0 = 0.0, a1 = 0.0, a2 = 0.0, a3 = 0.0, r = 0.0;
+  if (fwd) {
+    r = in ? __ldcg(x + gi) : 0.0;
+    for (int t = 0; t < b; ++t) {
+      const int t0 = t * kTile;
+      double Lr[kTile];
 #pragma unroll
-      for (int c = 0; c < kTile; ++c)
-        l[c] = (gi < n && c > lane && g0 + c < n) ? L[size_t(gi) * n + g0 + c] * dinv[g0 + c] : 0.0;
-      double u = gi < n ? xs[gi] : 0.0;
+      for (int c = 0; c < kTile; ++c) Lr[c] = in ? L[size_t(t0 + c) * n + gi] : 0.0;
+      warp_wait_flag(flags + t, epoch, lane);
+      const double xv = __ldcg(x + t0 + lane);
 #pragma unroll
-      for (int c = kTile - 1; c > 0; --c) {
-        const double uc = __shfl_sync(0xffffffffu, u, c);
-        if (lane < c) u = fma(-l[c], uc, u);
+      for (int c = 0; c < kTile; c += 4) {
+        a0 = fma(Lr[c], __shfl_sync(0xffffffffu, xv, c), a0);
+        a1 = fma(Lr[c + 1], __shfl_sync(0xffffffffu, xv, c + 1), a1);
+        a2 = fma(Lr[c + 2], __shfl_sync(0xffffffffu, xv, c + 2), a2);
+        a3 = fma(Lr[c + 3], __shfl_sync(0xffffffffu, xv, c + 3), a3);
       }
-      if (gi < n) xs[gi] = u * dinv[gi];
     }
-    __syncthreads();
-    const int c0 = g0 + q * kSeg;
-    double xv[kSeg];
+  } else {
+    warp_wait_flag(flags + b, epoch, lane);  // forward tile b
+    r = in ? __ldcg(x + gi) : 0.0;
+    for (int t = N - 1; t > b; --t) {
+      const int t0 = t * kTile;
+      double Lr[kTile];
 #pragma unroll
-    for (int c = 0; c < kSeg; ++c) xv[c] = c0 + c < n ? xs[c0 + c] : 0.0;
-    for (int base = 0; base < g0; base += kItems) {
-      const int j = base + item;
-      double s = 0.0;
-      if (j < g0) {
+      for (int q = 0; q < kTile; ++q) Lr[q] = (in && t0 + q < n) ? L[size_t(gi) * n + t0 + q] : 0.0;
+      warp_wait_flag(flags + N + t, epoch, lane);  // backward tile t
+      const double xv = t0 + lane < n ? __ldcg(x + t0 + lane) : 0.0;
 #pragma unroll
-        for (int c = 0; c < kSeg; ++c)
-          if (c0 + c < n) s = fma(L[size_t(j) * n + c0 + c], xv[c], s);
+      for (int q = 0; q < kTile; q += 4) {
+        a0 = fma(Lr[q], __shfl_sync(0xffffffffu, xv, q), a0);
+        a1 = fma(Lr[q + 1], __shfl_sync(0xffffffffu, xv, q + 1), a1);
+        a2 = fma(Lr[q + 2], __shfl_sync(0xffffffffu, xv, q + 2), a2);
+        a3 = fma(Lr[q + 3], __shfl_sync(0xffffffffu, xv, q + 3), a3);
       }
-      s += __shfl_xor_sync(0xffffffffu, s, 1);
-      s += __shfl_xor_sync(0xffffffffu, s, 2);
-      if (q == 0 && j < g0) xs[j] -= s;
     }
-    __syncthreads();
   }
-  for (int i = tid; i < n; i += BLOCK) x[i] = xs[i];
+  double z = in ? r - ((a0 + a1) + (a2 + a3)) : 0.0;
+  if (fwd) {
+#pragma unroll
+    for (int c = 0; c < kTile - 1; ++c) {
+      const double zc = __shfl_sync(0xffffffffu, z, c);
+      if (lane > c) z = fma(-l[c], zc, z);
+    }
+  } else {
+#pragma unroll
+    for (int c = kTile - 1; c > 0; --c) {
+      const double zc = __shfl_sync(0xffffffffu, z, c);
+      if (lane < c) z = fma(-l[c], zc, z);
+    }
+  }
+  if (in) x[gi] = z * di;
+  __threadfence();
+  __syncwarp();
+  if (lane == 0) st_release_gpu(flags + (fwd ? b : N + b), epoch);
 }
 
 // x[n + k] = w_k (M_k dx - b[n + k])   (one warp per row k of M).
