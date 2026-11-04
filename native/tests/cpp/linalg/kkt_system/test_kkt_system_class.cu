@@ -1,9 +1,8 @@
-// M6 kkt_system class-level tests (built only when the spmv, kkt_assembly and
-// cudss implementations are present, see CMakeLists.txt).
+// M6 kkt_system class-level tests on top of spmv, kkt_assembly and reduced_kkt.
 //
 // A small random QP block structure (n = 9, p = 3, m = 6, all four bound
 // sides present, some infinite entries, one G row with both sides infinite)
-// is assembled with KktAssembly / CudssSolver / SparseOperators; KktSystem
+// is assembled with KktAssembly / ReducedKktSolver / SparseOperators; KktSystem
 // runs update_scalings_and_factor + solve, and the un-condensed system of the
 // reference KKTSystem docstring (with the D_b * D_x box scaling) is checked
 // on the CPU on the rows and columns of finite bounds:
@@ -23,7 +22,6 @@
 #include "common/buffer.hpp"
 #include "common/graph.hpp"
 #include "common/handles.hpp"
-#include "linalg/cudss/cudss_solver.hpp"
 #include "linalg/kkt_system/kkt_system.hpp"
 #include "linalg/reduced_kkt/reduced_kkt_solver.hpp"
 
@@ -258,39 +256,28 @@ struct Fixture {
 };
 
 struct Stack {
-  // Declared first: destroyed last. cuDSS frees its workspace on the last
-  // bound stream when its data object is destroyed.
+  // Declared first: destroyed last.
   CudaStream stream = CudaStream::create();
   Counters counters;
-  CusparseHandle cusparse;
   KktAssembly kkt;
-  CudssSolver cudss{&counters};
   ReducedKktSolver reduced;
   SparseOperators ops;
   LoopContext loops{&counters};
   KktSystem sys;
 
-  explicit Stack(Fixture& f, bool use_reduced = false) {
+  explicit Stack(Fixture& f) {
     cudaStream_t s = stream.get();
     kkt.init(f.P.pat, f.A.pat, f.G.pat, f.data, s);
-    KktLinearSolver* solver = nullptr;
-    if (use_reduced) {
-      reduced.init(kkt, s);
-      solver = &reduced;
-    } else {
-      cudss.init(kkt.dim(), kkt.nnz(), kkt.indptr(), kkt.indices(), kkt.values(), false, s);
-      cudss.analyze(s);
-      solver = &cudss;
-    }
-    ops.init(cusparse.get(), f.data);
+    reduced.init(kkt, s);
+    ops.init(f.data);
     Settings settings;
-    sys.init(f.d, settings, &kkt, solver, &ops, DeviceSettingsView<double>{f.sf.data(), f.si.data()}, &loops, s);
+    sys.init(f.d, settings, &kkt, &reduced, &ops, DeviceSettingsView<double>{f.sf.data(), f.si.data()}, &loops, s);
   }
 };
 
-void run_and_check(unsigned seed, bool ir, bool reduced = false) {
+void run_and_check(unsigned seed, bool ir) {
   Fixture f(seed);
-  Stack st(f, reduced);
+  Stack st(f);
   cudaStream_t s = st.stream.get();
   st.sys.update_scalings_and_factor(f.data, f.scaling, ir, f.rho_d.data(), f.delta_d.data(),
                                     f.view(f.vars_p, f.vars_d), s);
@@ -300,7 +287,7 @@ void run_and_check(unsigned seed, bool ir, bool reduced = false) {
   auto ld = down(f.lhs_d.data(), f.lhs_d.size());
   double res = 0, inf_entries = 0;
   f.check(lp, ld, &res, &inf_entries);
-  EXPECT_LE(res, 1e-9) << "seed " << seed << " ir " << ir << " reduced " << reduced;
+  EXPECT_LE(res, 1e-9) << "seed " << seed << " ir " << ir;
   EXPECT_EQ(inf_entries, 0.0);
   EXPECT_EQ(down(st.sys.solve_status(), 1)[0], 0);
   EXPECT_EQ(down(st.sys.factor_status(), 1)[0], 0);
@@ -309,27 +296,19 @@ void run_and_check(unsigned seed, bool ir, bool reduced = false) {
 }  // namespace
 
 TEST(KktSystemClass, FullSystemResidual) {
-  for (unsigned seed : {1u, 2u, 3u}) run_and_check(seed, false);
+  for (unsigned seed : {1u, 2u, 3u, 11u, 12u}) run_and_check(seed, false);
 }
 
 TEST(KktSystemClass, FullSystemResidualWithIterativeRefinement) {
   for (unsigned seed : {4u, 5u}) run_and_check(seed, true);
 }
 
-TEST(KktSystemClass, ReducedBackendFullSystemResidual) {
-  for (unsigned seed : {1u, 2u, 3u, 11u, 12u}) run_and_check(seed, false, true);
-}
-
-TEST(KktSystemClass, ReducedBackendFullSystemResidualWithIterativeRefinement) {
-  for (unsigned seed : {4u, 5u}) run_and_check(seed, true, true);
-}
-
-// The reduced backend is deterministic: a captured replay reproduces the
-// eager result bit for bit.
-TEST(KktSystemClass, ReducedBackendCapturedSolveIsBitwiseEager) {
+// The KKT solve is deterministic: a captured replay reproduces the eager
+// result bit for bit.
+TEST(KktSystemClass, CapturedSolveIsBitwiseEager) {
   for (bool ir : {false, true}) {
     Fixture f(7);
-    Stack st(f, true);
+    Stack st(f);
     cudaStream_t s = st.stream.get();
     auto run = [&](cudaStream_t cs) {
       st.sys.update_scalings_and_factor(f.data, f.scaling, ir, f.rho_d.data(), f.delta_d.data(),
@@ -356,9 +335,9 @@ TEST(KktSystemClass, ReducedBackendCapturedSolveIsBitwiseEager) {
 
 // A non-positive-definite reduced matrix (rho = -1e8 dominates P and the
 // M^T W M term) must be reported in factor_status.
-TEST(KktSystemClass, ReducedBackendReportsFailedFactorization) {
+TEST(KktSystemClass, ReportsFailedFactorization) {
   Fixture f(3);
-  Stack st(f, true);
+  Stack st(f);
   cudaStream_t s = st.stream.get();
   const double neg_rho = -1e8;
   CUPIQP_CUDA_CHECK(cudaMemcpy(f.rho_d.data(), &neg_rho, sizeof(double), cudaMemcpyHostToDevice));
@@ -374,57 +353,15 @@ TEST(KktSystemClass, ReducedBackendReportsFailedFactorization) {
   EXPECT_EQ(down(st.sys.factor_status(), 1)[0], 0);
 }
 
-// Two cuDSS factorizations of the same matrix may differ in the last bits
-// (non-deterministic mode; deterministic mode showed intermittent illegal
-// addresses in cuDSS SOLVE on this machine, see docs/modules/kkt_system.md),
-// so captured and eager results are compared to 1e-10 relative.
-TEST(KktSystemClass, CapturedSolveMatchesEager) {
-  Fixture f(7);
+TEST(KktSystemClass, NanInputSetsSolveStatus) {
+  Fixture f(9);
+  f.rhs_primal[0] = NAN;
+  CUPIQP_CUDA_CHECK(cudaMemcpy(f.rhs_p.data(), f.rhs_primal.data(), sizeof(double), cudaMemcpyHostToDevice));
   Stack st(f);
   cudaStream_t s = st.stream.get();
   st.sys.update_scalings_and_factor(f.data, f.scaling, false, f.rho_d.data(), f.delta_d.data(),
                                     f.view(f.vars_p, f.vars_d), s);
   st.sys.solve(f.data, f.scaling, f.view(f.rhs_p, f.rhs_d), f.view(f.lhs_p, f.lhs_d), s);
   CUPIQP_CUDA_CHECK(cudaStreamSynchronize(s));
-  auto lp0 = down(f.lhs_p.data(), f.lhs_p.size());
-  auto ld0 = down(f.lhs_d.data(), f.lhs_d.size());
-  f.lhs_p.zero_async(s);
-  f.lhs_d.zero_async(s);
-  GraphExec g;
-  g.instantiate(capture(
-      s,
-      [&](cudaStream_t cs) {
-        st.sys.update_scalings_and_factor(f.data, f.scaling, false, f.rho_d.data(), f.delta_d.data(),
-                                          f.view(f.vars_p, f.vars_d), cs);
-        st.sys.solve(f.data, f.scaling, f.view(f.rhs_p, f.rhs_d), f.view(f.lhs_p, f.lhs_d), cs);
-      },
-      &st.counters));
-  g.launch(s, &st.counters);
-  CUPIQP_CUDA_CHECK(cudaStreamSynchronize(s));
-  auto near = [](const std::vector<double>& a, const std::vector<double>& b) {
-    double scale = 0, diff = 0;
-    for (size_t i = 0; i < a.size(); ++i) {
-      scale = std::max(scale, std::fabs(b[i]));
-      diff = std::max(diff, std::fabs(a[i] - b[i]));
-    }
-    return diff <= 1e-10 * scale;
-  };
-  EXPECT_TRUE(near(down(f.lhs_p.data(), f.lhs_p.size()), lp0));
-  EXPECT_TRUE(near(down(f.lhs_d.data(), f.lhs_d.size()), ld0));
-  EXPECT_EQ(down(st.sys.solve_status(), 1)[0], 0);
-}
-
-TEST(KktSystemClass, NanInputSetsSolveStatus) {
- for (bool reduced : {false, true}) {
-  Fixture f(9);
-  f.rhs_primal[0] = NAN;
-  CUPIQP_CUDA_CHECK(cudaMemcpy(f.rhs_p.data(), f.rhs_primal.data(), sizeof(double), cudaMemcpyHostToDevice));
-  Stack st(f, reduced);
-  cudaStream_t s = st.stream.get();
-  st.sys.update_scalings_and_factor(f.data, f.scaling, false, f.rho_d.data(), f.delta_d.data(),
-                                    f.view(f.vars_p, f.vars_d), s);
-  st.sys.solve(f.data, f.scaling, f.view(f.rhs_p, f.rhs_d), f.view(f.lhs_p, f.lhs_d), s);
-  CUPIQP_CUDA_CHECK(cudaStreamSynchronize(s));
-  EXPECT_EQ(down(st.sys.solve_status(), 1)[0], 1) << "reduced " << reduced;
- }
+  EXPECT_EQ(down(st.sys.solve_status(), 1)[0], 1);
 }

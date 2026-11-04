@@ -12,7 +12,7 @@
 //       replay medians of factor / solve / one iteration (1 factor + 2
 //       solves) and the accuracy of one factor + solve on two random rhs.
 //   cupiqp_native_reduced_kkt_sweep --data <group_k.bin> --case 0 --label mpc
-//       Real KKT states: the public solver (reduced backend) runs with
+//       Real KKT states: the public solver runs with
 //       max_iter = k for every k up to convergence; each state's kkt.values
 //       is factored and solved on a random rhs and on the IPM residual rhs.
 //
@@ -111,7 +111,7 @@ struct Acc {
   int status = 0;
 };
 
-// One factor + solve of K x = b with the reduced backend; accuracy on the CPU.
+// One factor + solve of K x = b with ReducedKktSolver; accuracy on the CPU.
 Acc check(ReducedKktSolver& red, const HostK& hk, const std::vector<double>& Kh, const std::vector<double>& b,
           cudaStream_t s) {
   CUPIQP_CUDA_CHECK(cudaMemcpyAsync(red.rhs(), b.data(), sizeof(double) * b.size(), cudaMemcpyHostToDevice, s));
@@ -342,7 +342,6 @@ void run_real(const std::string& data, int c, const std::string& label, cudaStre
   auto& st = solver.settings();
   st.eps_abs = st.eps_duality_gap_abs = 1e-8;
   st.eps_rel = st.eps_duality_gap_rel = 0.0;
-  st.kkt_backend = KktBackend::Reduced;
   solver.setup(g.P, g.view(packets.data()), &g.A, &g.C);
   solver.solve();
   const int N = solver.info().iter;

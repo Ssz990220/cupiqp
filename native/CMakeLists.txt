@@ -17,12 +17,10 @@ endif()
 option(CUPIQP_BUILD_TESTS "Build C++ module tests (GoogleTest)" ON)
 option(CUPIQP_BUILD_PYTHON "Build the nanobind module cupiqp_native._ext" ON)
 option(CUPIQP_BUILD_BENCH "Build native benchmarks" ON)
-set(CUPIQP_CUDSS_ROOT "$ENV{HOME}/Projects/.deps/cudss-0.8.0.10" CACHE PATH "cuDSS install root (redist layout)")
 
 # ---------------------------------------------------------------- dependencies
+# Only the CUDA runtime (CUB is header only, part of the toolkit).
 find_package(CUDAToolkit 13.0 REQUIRED)
-find_package(cudss 0.8 REQUIRED CONFIG PATHS "${CUPIQP_CUDSS_ROOT}/lib/cmake/cudss" NO_DEFAULT_PATH)
-message(STATUS "cuDSS: ${cudss_LIBRARY_DIR}")
 
 # ---------------------------------------------------------------- library
 # Every module lists its sources in src/<group>/<module>/sources.cmake (or
@@ -40,14 +38,11 @@ add_library(cupiqp_native STATIC ${CUPIQP_SOURCES})
 target_include_directories(cupiqp_native
   PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
   PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(cupiqp_native PUBLIC CUDA::cudart CUDA::cusparse cudss)
+target_link_libraries(cupiqp_native PUBLIC CUDA::cudart)
 target_compile_options(cupiqp_native PRIVATE
   $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr -lineinfo -Xcompiler=-Wall>
   $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra>)
-set_target_properties(cupiqp_native PROPERTIES CUDA_SEPARABLE_COMPILATION OFF
-  BUILD_RPATH "${cudss_LIBRARY_DIR}" INSTALL_RPATH "${cudss_LIBRARY_DIR}")
-target_compile_definitions(cupiqp_native PUBLIC
-  CUPIQP_CUDSS_MT_LIB="${cudss_LIBRARY_DIR}/libcudss_mtlayer_gomp.so.0")
+set_target_properties(cupiqp_native PROPERTIES CUDA_SEPARABLE_COMPILATION OFF)
 
 # Internal headers for tests, the binding and benchmarks.
 add_library(cupiqp_native_internal INTERFACE)
@@ -70,7 +65,6 @@ if(CUPIQP_BUILD_TESTS)
     add_executable(${name} ${ARGN})
     target_link_libraries(${name} PRIVATE cupiqp_native_internal GTest::gtest_main)
     target_compile_options(${name} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
-    set_target_properties(${name} PROPERTIES BUILD_RPATH "${cudss_LIBRARY_DIR}")
     gtest_discover_tests(${name} DISCOVERY_TIMEOUT 120)
   endfunction()
   file(GLOB_RECURSE CUPIQP_TEST_LISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/cpp/CMakeLists.txt")
@@ -93,8 +87,7 @@ if(CUPIQP_BUILD_PYTHON)
   nanobind_add_module(_ext NB_STATIC ${CUPIQP_BIND_SOURCES})
   target_link_libraries(_ext PRIVATE cupiqp_native_internal)
   set_target_properties(_ext PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/python/cupiqp_native"
-    BUILD_RPATH "${cudss_LIBRARY_DIR}")
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/python/cupiqp_native")
   # Copy the pure-Python package next to the extension.
   file(GLOB CUPIQP_PY_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/python/cupiqp_native/*.py")
   add_custom_target(cupiqp_native_py ALL

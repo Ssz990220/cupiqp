@@ -2,9 +2,8 @@
 # Same-session comparison for the staged-input update (run from the repository root):
 #   bash native/bench/tools/run_staged_comparison.sh <out dir> [repeats]
 # For MPC and Trajopt: reference (harness protocol), native C++ default,
-# native C++ --staged, native C++ --staged with whole-solve graph + custom SpMV,
-# and the harness native backend with --staged. Native C++ runs are checked
-# with the benchmark's own KKT checker.
+# native C++ --staged, and the harness native backend with --staged. Native
+# C++ runs are checked with the benchmark's own KKT checker.
 set -euo pipefail
 OUT=${1:?usage: run_staged_comparison.sh <out dir> [repeats]}
 REPEATS=${2:-20}
@@ -21,7 +20,7 @@ for ds in mpc trajopt; do
     --output "$D/harness-reference" > "$D/harness-reference.log" 2>&1
   $PY native/bench/harness/replay_updates.py --backend native --staged --dataset "$ds" --repeats "$REPEATS" \
     --output "$D/harness-native-staged" > "$D/harness-native-staged.log" 2>&1
-  for variant in "default:" "staged:--staged" "staged-devloop-customspmv:--staged --graph-mode device --custom-spmv"; do
+  for variant in "default:" "staged:--staged"; do
     name=${variant%%:*}
     flags=${variant#*:}
     # shellcheck disable=SC2086

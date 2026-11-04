@@ -34,8 +34,6 @@ ap.add_argument("--output", type=Path, required=True)
 ap.add_argument("--eps", type=float, default=1e-8)
 ap.add_argument("--native-build", type=Path, default=REPO / "build" / "native")
 ap.add_argument("--graph-mode", choices=("auto", "iteration", "device", "none"), default="auto")
-ap.add_argument("--kkt-backend", choices=("cudss", "reduced"), default="cudss")
-ap.add_argument("--custom-spmv", action="store_true")
 args = ap.parse_args()
 args.output.mkdir(parents=True, exist_ok=True)
 
@@ -96,8 +94,6 @@ if args.backend == "native":
     s.settings.graph_mode = {"auto": mod.GraphMode.Auto, "iteration": mod.GraphMode.IterationGraphHostLoop,
                              "device": mod.GraphMode.SolveGraphDeviceLoop, "none": mod.GraphMode.None_}[args.graph_mode]
     s.settings.enable_cuda_graph = args.graph_mode != "none"
-    s.settings.kkt_backend = args.kkt_backend
-    s.settings.custom_spmv = args.custom_spmv
 a = inputs[0]
 s.setup(P=a["matrices"]["P"], c=a["q"], A=a["matrices"]["A"], b=a["b"], G=a["matrices"]["C"], h_l=a["l"], h_u=a["u"])
 
@@ -128,8 +124,6 @@ y = r.y.numpy().reshape(-1)
 z = r.z_u.numpy().reshape(-1) - r.z_l.numpy().reshape(-1)
 v = check_solution(other, x, y, z, 1e-6)
 record = dict(backend=args.backend, dataset=args.dataset, graph_mode=args.graph_mode if args.backend == "native" else None,
-              kkt_backend=args.kkt_backend if args.backend == "native" else None,
-              custom_spmv=args.custom_spmv if args.backend == "native" else None,
               eps=args.eps, source_cases=[cases[0]["id"], other_case], status=status,
               iterations=int(info.iter[0]), validation=v,
               profile_range="One warmed update(all matrices/vectors)+solve+device completion; inputs pre-uploaded; "

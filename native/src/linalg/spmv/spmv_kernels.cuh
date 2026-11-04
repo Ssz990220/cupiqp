@@ -1,7 +1,7 @@
 // Kernels of module spmv.
 //  * scale_kernel: the y = beta * y fallback used when op(M) has no stored
 //    entries (rows, cols or nnz zero) and no product is computed.
-//  * csr_lanes_kernel: custom backend (SpmvBackend::Custom). LANES threads per
+//  * csr_lanes_kernel: the product. LANES threads per
 //    output row stride over the row's entries, then a fixed shuffle tree
 //    reduces them: bitwise reproducible. With perm != nullptr the values are
 //    gathered through perm (op = T as the CSC view of a CSR matrix).

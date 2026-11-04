@@ -54,24 +54,22 @@ __global__ void axpy(int32_t k, const double* t, double* y) {
 class SpmvTest : public ::testing::Test {
  protected:
   CudaStream stream = CudaStream::create(cudaStreamNonBlocking);
-  CusparseHandle handle;
 };
 
 }  // namespace
 
 // ------------------------------------------------------------ random vs CPU
 using Case = std::tuple<int, int, double>;  // rows, cols, density
-class SpmvRandom : public SpmvTest, public ::testing::WithParamInterface<std::tuple<Case, bool, SpmvBackend>> {};
+class SpmvRandom : public SpmvTest, public ::testing::WithParamInterface<std::tuple<Case, bool>> {};
 
 TEST_P(SpmvRandom, MatchesCpuWithAlphaBeta) {
-  const auto [shape, transpose, backend] = GetParam();
+  const auto [shape, transpose] = GetParam();
   const auto [rows, cols, density] = shape;
   HostCsr M = random_csr(rows, cols, density, 1000 * rows + cols);
   DeviceCsr dM(M);
   SpMV op;
-  op.init(handle.get(), dM.view(), transpose, backend);
-  EXPECT_EQ(op.uses_custom(), backend == SpmvBackend::Custom);
-  EXPECT_EQ(op.uses_cusparse(), backend == SpmvBackend::Cusparse);
+  op.init(dM.view(), transpose);
+  EXPECT_TRUE(op.computes_product());
   const int32_t nx = transpose ? rows : cols, ny = transpose ? cols : rows;
   ASSERT_EQ(op.x_len(), nx);
   ASSERT_EQ(op.y_len(), ny);
@@ -91,11 +89,10 @@ INSTANTIATE_TEST_SUITE_P(Shapes, SpmvRandom,
                                                               Case{200, 32, 0.3}, Case{32, 200, 0.3},
                                                               Case{37, 53, 0.05}, Case{37, 53, 0.9},
                                                               Case{1024, 256, 0.3}),
-                                            ::testing::Bool(),
-                                            ::testing::Values(SpmvBackend::Cusparse, SpmvBackend::Custom)));
+                                            ::testing::Bool()));
 
 // ------------------------------------------------------------ empty matrices
-TEST_F(SpmvTest, EmptyMatricesSkipCusparse) {
+TEST_F(SpmvTest, EmptyMatricesSkipTheProduct) {
   const double nan = std::numeric_limits<double>::quiet_NaN();
   // (rows, cols, store nothing): rows == 0, cols == 0, nnz == 0.
   for (auto [rows, cols] : {std::pair{0, 5}, std::pair{5, 0}, std::pair{4, 6}, std::pair{0, 0}}) {
@@ -104,12 +101,10 @@ TEST_F(SpmvTest, EmptyMatricesSkipCusparse) {
     M.cols = cols;
     M.indptr.assign(rows + 1, 0);
     DeviceCsr dM(M);
-    for (auto [transpose, backend] : {std::pair{false, SpmvBackend::Cusparse}, std::pair{true, SpmvBackend::Cusparse},
-                                      std::pair{false, SpmvBackend::Custom}, std::pair{true, SpmvBackend::Custom}}) {
+    for (bool transpose : {false, true}) {
       SpMV op;
-      op.init(handle.get(), dM.view(), transpose, backend);
-      EXPECT_FALSE(op.uses_cusparse());
-      EXPECT_FALSE(op.uses_custom());
+      op.init(dM.view(), transpose);
+      EXPECT_FALSE(op.computes_product());
       const int32_t ny = op.y_len(), nx = op.x_len();
       CudaBuffer<double> dx = to_device(std::vector<double>(nx, 1.0));
       // beta == 0: y = 0 even if y held NaN.
@@ -128,19 +123,15 @@ TEST_F(SpmvTest, EmptyMatricesSkipCusparse) {
 }
 
 // ------------------------------------------------------------ graph capture
-// cuSPARSE CSR SpMV with ALG_DEFAULT is bitwise reproducible only for
-// op = N with beta == 0 (measured: op = T, and op = N with beta != 0, use
-// atomics and vary run to run, eager or replayed). So capture/replay is
-// required to be bitwise equal to eager in the deterministic case and within
-// 1e-14 of the magnitude sum otherwise.
+// The kernels use fixed summation orders, so capture/replay must be bitwise
+// equal to eager for every op and beta.
 TEST_F(SpmvTest, CaptureReplayMatchesEager) {
   HostCsr M = random_csr(300, 120, 0.4, 11);
   DeviceCsr dM(M);
-  for (auto backend : {SpmvBackend::Cusparse, SpmvBackend::Custom})
   for (bool transpose : {false, true}) {
     for (double beta : {0.0, 0.5}) {
       SpMV op;
-      op.init(handle.get(), dM.view(), transpose, backend);
+      op.init(dM.view(), transpose);
       const std::vector<double> x = random_vec(op.x_len(), 1), y0 = random_vec(op.y_len(), 2);
       CudaBuffer<double> dx = to_device(x), dy = to_device(y0);
       op(stream.get(), 1.25, dx.data(), beta, dy.data());
@@ -152,13 +143,11 @@ TEST_F(SpmvTest, CaptureReplayMatchesEager) {
       Counters c;
       GraphExec exec;
       exec.instantiate(capture(stream.get(), [&](cudaStream_t s) { op(s, 1.25, dx.data(), beta, dy.data()); }, &c));
-      const bool deterministic = backend == SpmvBackend::Custom || (!transpose && beta == 0.0);
       for (int rep = 0; rep < 5; ++rep) {
         dy.copy_from_host(y0.data(), y0.size(), stream.get());
         exec.launch(stream.get(), &c);
         const auto replay = to_host(dy, stream.get());
-        if (deterministic)
-          EXPECT_TRUE(bitwise_equal(replay, eager)) << "transpose=" << transpose << " beta=" << beta;
+        EXPECT_TRUE(bitwise_equal(replay, eager)) << "transpose=" << transpose << " beta=" << beta;
         expect_close(replay, want, mag);
         expect_close(replay, eager, mag);
       }
@@ -166,18 +155,16 @@ TEST_F(SpmvTest, CaptureReplayMatchesEager) {
   }
 }
 
-// Documents the run-to-run behaviour of cuSPARSE ALG_DEFAULT (see above) and
-// requires the custom backend to be reproducible. The custom op = T init
-// uploads a ~1 MB CSC pattern right before the first call on a non-blocking
-// stream (regression check for the pageable-copy race fixed in init_custom).
+// Eager calls are bitwise reproducible. The op = T init uploads a ~1 MB CSC
+// pattern right before the first call on a non-blocking stream (regression
+// check for the pageable-copy race fixed in init).
 TEST_F(SpmvTest, EagerRepeatability) {
   HostCsr M = random_csr(2521, 169, 0.59, 11, 0.8, 0.0);
   DeviceCsr dM(M);
-  for (auto backend : {SpmvBackend::Cusparse, SpmvBackend::Custom})
   for (bool transpose : {false, true}) {
     for (double beta : {0.0, 0.5}) {
       SpMV op;
-      op.init(handle.get(), dM.view(), transpose, backend);
+      op.init(dM.view(), transpose);
       const auto y0 = random_vec(op.y_len(), 2);
       CudaBuffer<double> dx = to_device(random_vec(op.x_len(), 1)), dy(op.y_len());
       std::vector<double> first;
@@ -194,10 +181,7 @@ TEST_F(SpmvTest, EagerRepeatability) {
         }
         else differ += !bitwise_equal(got, first, /*quiet=*/true);
       }
-      const bool custom = backend == SpmvBackend::Custom;
-      std::printf("[ info ] %s 2521x169 op=%s beta=%g: %d of 19 repeats differ bitwise from the first\n",
-                  custom ? "custom  " : "cusparse", transpose ? "T" : "N", beta, differ);
-      if (custom || (!transpose && beta == 0.0)) EXPECT_EQ(differ, 0);
+      EXPECT_EQ(differ, 0) << "2521x169 op=" << (transpose ? "T" : "N") << " beta=" << beta;
     }
   }
 }
@@ -205,10 +189,9 @@ TEST_F(SpmvTest, EagerRepeatability) {
 TEST_F(SpmvTest, InPlaceValueUpdatesSeenEagerAndReplay) {
   HostCsr M = random_csr(64, 48, 0.3, 21);
   DeviceCsr dM(M);
-  for (auto backend : {SpmvBackend::Cusparse, SpmvBackend::Custom})
   for (bool transpose : {false, true}) {
     SpMV op;
-    op.init(handle.get(), dM.view(), transpose, backend);
+    op.init(dM.view(), transpose);
     const std::vector<double> x = random_vec(op.x_len(), 5);
     CudaBuffer<double> dx = to_device(x), dy(op.y_len());
     Counters c;
@@ -231,15 +214,14 @@ TEST_F(SpmvTest, InPlaceValueUpdatesSeenEagerAndReplay) {
 }
 
 // Inside a conditional WHILE body (the whole-solve graph pattern): K
-// iterations of t = alpha op(M) x; y += t, host loop vs captured node.
-// op = N with beta == 0 is deterministic, so that case must match bitwise.
+// iterations of t = alpha op(M) x; y += t, host loop vs captured node
+// (bitwise equal).
 TEST_F(SpmvTest, InsideConditionalWhileBody) {
   HostCsr M = random_csr(2521 / 8, 169, 0.6, 31, 0.8, 0.05);
   DeviceCsr dM(M);
-  for (auto backend : {SpmvBackend::Cusparse, SpmvBackend::Custom})
   for (bool transpose : {false, true}) {
     SpMV op;
-    op.init(handle.get(), dM.view(), transpose, backend);
+    op.init(dM.view(), transpose);
     const std::vector<double> x = random_vec(op.x_len(), 9), y0 = random_vec(op.y_len(), 10);
     CudaBuffer<double> dx = to_device(x), dy = to_device(y0), dt(op.y_len());
     CudaBuffer<int32_t> ints(2);
@@ -275,7 +257,7 @@ TEST_F(SpmvTest, InsideConditionalWhileBody) {
       dy.copy_from_host(y0.data(), y0.size(), stream.get());
       exec.launch(stream.get(), &c);
       const auto replay = to_host(dy, stream.get());
-      if (!transpose || backend == SpmvBackend::Custom) EXPECT_TRUE(bitwise_equal(replay, eager)) << "rep=" << rep;
+      EXPECT_TRUE(bitwise_equal(replay, eager)) << "rep=" << rep;
       expect_close(replay, want, mag);
     }
   }
@@ -287,10 +269,9 @@ TEST_F(SpmvTest, InsideConditionalWhileBody) {
 TEST_F(SpmvTest, NoAllocationOrSyncPerCall) {
   HostCsr M = random_csr(500, 169, 0.5, 41);
   DeviceCsr dM(M);
-  for (auto backend : {SpmvBackend::Cusparse, SpmvBackend::Custom}) {
   SpMV fwd, tr;
-  fwd.init(handle.get(), dM.view(), false, backend);
-  tr.init(handle.get(), dM.view(), true, backend);
+  fwd.init(dM.view(), false);
+  tr.init(dM.view(), true);
   CudaBuffer<double> x1 = to_device(random_vec(169, 1)), y1(500), x2 = to_device(random_vec(500, 2)), y2(169);
 
   cudaMemPool_t pool;
@@ -330,7 +311,6 @@ TEST_F(SpmvTest, NoAllocationOrSyncPerCall) {
     EXPECT_TRUE(t == cudaGraphNodeTypeKernel || t == cudaGraphNodeTypeMemset) << "node type " << (int)t;
   }
   CUPIQP_CUDA_CHECK(cudaGraphDestroy(g));
-  }
 }
 
 // ------------------------------------------------------------ SparseOperators
@@ -360,9 +340,8 @@ TEST_F(SpmvTest, SparseOperatorsMatchCpu) {
     f.P = random_csr(n, n, 0.3, 1, 0.2, 0.0);
     f.A = p ? random_csr(p, n, 0.4, 2) : HostCsr{0, n, {0}, {}, {}};
     f.G = m ? random_csr(m, n, 0.4, 3) : HostCsr{0, n, {0}, {}, {}};
-    for (auto backend : {SpmvBackend::Cusparse, SpmvBackend::Custom}) {
     SparseOperators ops;
-    ops.init(handle.get(), f.view(n, p, m), backend);
+    ops.init(f.view(n, p, m));
     const double nan = std::numeric_limits<double>::quiet_NaN();
     const auto xn = random_vec(n, 4), xp = random_vec(p, 5), xm = random_vec(m, 6);
     CudaBuffer<double> dxn = to_device(xn), dxp = to_device(xp), dxm = to_device(xm);
@@ -379,7 +358,6 @@ TEST_F(SpmvTest, SparseOperatorsMatchCpu) {
     check([&](cudaStream_t s, double a, const double* x, double* y) { ops.AT(s, a, x, y); }, f.A, true, xp, dxp);
     check([&](cudaStream_t s, double a, const double* x, double* y) { ops.G(s, a, x, y); }, f.G, false, xn, dxn);
     check([&](cudaStream_t s, double a, const double* x, double* y) { ops.GT(s, a, x, y); }, f.G, true, xm, dxm);
-    }
   }
 }
 

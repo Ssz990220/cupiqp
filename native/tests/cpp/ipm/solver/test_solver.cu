@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <random>
+#include <string>
 #include <vector>
 
 #include "common/buffer.hpp"
@@ -129,11 +130,8 @@ double primal_violation(const HostQp& q, const std::vector<double>& x) {
   return v;
 }
 
-SparseSolver make_solver(const HostQp& q, const DeviceQp& d, GraphMode mode,
-                         KktBackend backend = KktBackend::Cudss, bool custom_spmv = false) {
+SparseSolver make_solver(const HostQp& q, const DeviceQp& d, GraphMode mode) {
   SparseSolver s;
-  s.settings().kkt_backend = backend;
-  s.settings().custom_spmv = custom_spmv;
   s.settings().graph_mode = mode;
   s.settings().enable_cuda_graph = mode != GraphMode::None;
   s.setup(q.P, d.view(), &q.A, &q.G);
@@ -186,8 +184,6 @@ TEST(Solver, GraphModesAgreeOnRepeatedSolves) {
         EXPECT_NEAR(info.iter, iter_ref, 1) << "mode " << static_cast<int>(mode);
       }
     }
-    Counters c = s.counters();
-    EXPECT_EQ(c.cudss_analysis_calls, 1);
   }
 }
 
@@ -241,8 +237,6 @@ TEST(Solver, RepeatedUpdatesKeepAddressesAndAllocateNothing) {
   CUPIQP_CUDA_CHECK(cudaMemGetInfo(&free1, &total));
   EXPECT_EQ(free0, free1);
   const Counters c1 = s.counters();
-  EXPECT_EQ(c1.cudss_analysis_calls, 1);
-  EXPECT_EQ(c1.cudss_device_allocs, c0.cudss_device_allocs);
   EXPECT_EQ(c1.graph_captures, c0.graph_captures);  // the iteration graph is reused
 }
 
@@ -289,14 +283,6 @@ TEST(Solver, StructuralSettingChangeAfterSetupThrows) {
   EXPECT_NO_THROW(s.solve());
 }
 
-TEST(Solver, DeterministicCudssModeRejected) {
-  HostQp q = random_qp(8, 2, 6, 2);
-  DeviceQp d(q);
-  SparseSolver s;
-  s.settings().use_deterministic_mode_for_cudss = true;
-  EXPECT_THROW(s.setup(q.P, d.view(), &q.A, &q.G), Error);
-}
-
 TEST(Solver, StagedUpdateMatchesPlainUpdate) {
   HostQp q = random_qp(25, 5, 20, 41);
   DeviceQp d(q);
@@ -338,7 +324,6 @@ TEST(Solver, StagedUpdateMatchesPlainUpdate) {
       const Counters c1 = st.counters();
       if (rep > 0) {  // update graph, prelude/finalize and iteration graphs are reused
         EXPECT_EQ(c1.graph_captures, c0.graph_captures);
-        EXPECT_EQ(c1.cudss_device_allocs, c0.cudss_device_allocs);
         EXPECT_LE(c1.host_syncs - c0.host_syncs, is.iter + 2);  // loop checks (+ info())
       }
     }
@@ -370,7 +355,7 @@ TEST(Solver, StagedPartialUpdateOnlyReplacesNamedBlocks) {
   EXPECT_LT(max_abs_diff(host_x(st), xp), 1e-8);
 }
 
-// ------------------------------------------------------------------ reduced KKT backend
+// ------------------------------------------------------------------ KKT solve, graph modes
 
 namespace {
 constexpr GraphMode kAllModes[] = {GraphMode::None, GraphMode::IterationGraphHostLoop,
@@ -383,53 +368,22 @@ bool all_finite(const std::vector<double>& v) {
 }
 }  // namespace
 
-TEST(SolverReduced, AnalyticEqualityQp) {
-  CsrPattern P{2, 2, {0, 1, 2}, {0, 1}}, A{1, 2, {0, 2}, {0, 1}};
-  std::vector<double> Pv{1, 1}, Av{1, 1}, c{0, 0}, b{2};
-  CudaBuffer<double> dP(2), dA(2), dc(2), db(1);
-  dP.copy_from_host(Pv.data(), 2, nullptr); dA.copy_from_host(Av.data(), 2, nullptr);
-  dc.copy_from_host(c.data(), 2, nullptr); db.copy_from_host(b.data(), 1, nullptr);
-  CUPIQP_CUDA_CHECK(cudaDeviceSynchronize());
-  for (GraphMode mode : kAllModes) {
-    SparseSolver s;
-    s.settings().kkt_backend = KktBackend::Reduced;
-    s.settings().graph_mode = mode;
-    ValuesView v; v.P = dP.data(); v.A = dA.data(); v.c = dc.data(); v.b = db.data();
-    s.setup(P, v, &A, nullptr);
-    s.solve();
-    Info info = s.info();
-    EXPECT_EQ(info.status, Status::Solved) << static_cast<int>(mode);
-    auto x = host_x(s);
-    EXPECT_NEAR(x[0], 1.0, 1e-7);
-    EXPECT_NEAR(x[1], 1.0, 1e-7);
-    EXPECT_EQ(s.counters().cudss_analysis_calls, 0);
-    EXPECT_EQ(s.counters().cudss_factor_calls, 0);
-  }
-}
-
-// Same solution as cuDSS; with the custom SpMV every step is deterministic,
-// so all three graph modes and repeated solves agree bit for bit.
-TEST(SolverReduced, MatchesCudssAndGraphModesAgreeBitwise) {
+// Every step is deterministic (fixed summation orders in the KKT solve and
+// the SpMV), so all three graph modes and repeated solves agree bit for bit.
+TEST(Solver, GraphModesAgreeBitwise) {
   for (unsigned seed : {11u, 12u}) {
     HostQp q = random_qp(40, 6, 70, seed);
     DeviceQp d(q);
-    SparseSolver ref = make_solver(q, d, GraphMode::IterationGraphHostLoop);
-    ref.solve();
-    ASSERT_EQ(ref.info().status, Status::Solved);
-    const auto x_cudss = host_x(ref);
-    const int iter_cudss = ref.info().iter;
     std::vector<double> x_ref;
     int iter_ref = -1;
     for (GraphMode mode : kAllModes) {
-      SparseSolver s = make_solver(q, d, mode, KktBackend::Reduced, /*custom_spmv=*/true);
+      SparseSolver s = make_solver(q, d, mode);
       for (int rep = 0; rep < 3; ++rep) {
         s.solve();
         Info info = s.info();
         ASSERT_EQ(info.status, Status::Solved) << "mode " << static_cast<int>(mode) << " rep " << rep;
         auto x = host_x(s);
         EXPECT_LT(primal_violation(q, x), 1e-6);
-        EXPECT_LT(max_abs_diff(x, x_cudss), 1e-6);
-        EXPECT_NEAR(info.iter, iter_cudss, 2);
         if (x_ref.empty()) {
           x_ref = x;
           iter_ref = info.iter;
@@ -438,28 +392,20 @@ TEST(SolverReduced, MatchesCudssAndGraphModesAgreeBitwise) {
           EXPECT_EQ(info.iter, iter_ref);
         }
       }
-      EXPECT_EQ(s.counters().cudss_analysis_calls, 0);
-      EXPECT_EQ(s.counters().cudss_device_allocs, 0);
     }
   }
 }
 
-TEST(SolverReduced, EqualityOnlyAndBoxOnlyQps) {
+TEST(Solver, EqualityOnlyAndBoxOnlyQps) {
   // Box-only: no A, no G (H = P + x_reg).
   HostQp q = random_qp(35, 0, 0, 13);
   DeviceQp d(q);
   for (GraphMode mode : kAllModes) {
     SparseSolver r;
-    r.settings().kkt_backend = KktBackend::Reduced;
     r.settings().graph_mode = mode;
     r.setup(q.P, d.view(), nullptr, nullptr);
     r.solve();
     ASSERT_EQ(r.info().status, Status::Solved) << static_cast<int>(mode);
-    SparseSolver c;
-    c.setup(q.P, d.view(), nullptr, nullptr);
-    c.solve();
-    ASSERT_EQ(c.info().status, Status::Solved);
-    EXPECT_LT(max_abs_diff(host_x(r), host_x(c)), 1e-6);
     EXPECT_LT(primal_violation(q, host_x(r)), 1e-6);
   }
   // Equality-only (no G, no bounds).
@@ -471,7 +417,6 @@ TEST(SolverReduced, EqualityOnlyAndBoxOnlyQps) {
   v.x_l = v.x_u = nullptr;
   for (GraphMode mode : kAllModes) {
     SparseSolver r;
-    r.settings().kkt_backend = KktBackend::Reduced;
     r.settings().graph_mode = mode;
     r.setup(e.P, v, &e.A, nullptr);
     r.solve();
@@ -480,11 +425,11 @@ TEST(SolverReduced, EqualityOnlyAndBoxOnlyQps) {
   }
 }
 
-TEST(SolverReduced, RepeatedUpdatesAllocateNothing) {
+TEST(Solver, RepeatedUpdatesAllocateNothing) {
   HostQp q = random_qp(25, 5, 20, 3);
   DeviceQp d(q);
   for (GraphMode mode : kAllModes) {
-    SparseSolver s = make_solver(q, d, mode, KktBackend::Reduced);
+    SparseSolver s = make_solver(q, d, mode);
     s.solve();
     ASSERT_EQ(s.info().status, Status::Solved);
     const Counters c0 = s.counters();
@@ -507,8 +452,10 @@ TEST(SolverReduced, RepeatedUpdatesAllocateNothing) {
   }
 }
 
-TEST(SolverReduced, RejectsLargeN) {
-  const int n = 2049;
+// n <= 2048 is the limit of the dense Schur complement: 2048 is accepted,
+// 2049 is rejected at setup with Unsupported.
+TEST(Solver, RejectsNAbove2048) {
+ for (int n : {2049, 2048}) {
   HostQp q;
   q.P.rows = q.P.cols = n;
   q.P.indptr.resize(n + 1);
@@ -523,27 +470,20 @@ TEST(SolverReduced, RejectsLargeN) {
   v.P = dP.data();
   v.c = dc.data();
   SparseSolver s;
-  s.settings().kkt_backend = KktBackend::Reduced;
-  try {
+  if (n > 2048) {
+    try {
+      s.setup(q.P, v, nullptr, nullptr);
+      FAIL() << "expected Unsupported";
+    } catch (const Error& e) {
+      EXPECT_EQ(e.code(), ErrorCode::Unsupported);
+      EXPECT_NE(std::string(e.what()).find("n <= 2048"), std::string::npos) << e.what();
+    }
+  } else {
     s.setup(q.P, v, nullptr, nullptr);
-    FAIL() << "expected Unsupported";
-  } catch (const Error& e) {
-    EXPECT_EQ(e.code(), ErrorCode::Unsupported);
+    s.solve();
+    EXPECT_EQ(s.info().status, Status::Solved);
   }
-  SparseSolver ok;  // cuDSS takes it
-  ok.setup(q.P, v, nullptr, nullptr);
-  ok.solve();
-  EXPECT_EQ(ok.info().status, Status::Solved);
-}
-
-TEST(SolverReduced, BackendIsFrozenAfterSetup) {
-  HostQp q = random_qp(8, 2, 6, 2);
-  DeviceQp d(q);
-  SparseSolver s = make_solver(q, d, GraphMode::None, KktBackend::Reduced);
-  s.settings().kkt_backend = KktBackend::Cudss;
-  EXPECT_THROW(s.solve(), Error);
-  s.settings().kkt_backend = KktBackend::Reduced;
-  EXPECT_NO_THROW(s.solve());
+ }
 }
 
 // Forced Cholesky failures: P = -10 I (not convex) with box bounds and an
@@ -554,7 +494,7 @@ TEST(SolverReduced, BackendIsFrozenAfterSetup) {
 // PRIMAL_INFEASIBLE after 13 iterations and 5 retries; the problem is not
 // convex); with max_factor_retires = 2 the solve must end NUMERICAL_ISSUES.
 // Neither may produce a non-finite result.
-TEST(SolverReduced, FactorFailureRetriesThenRecoversOrReportsNumericalIssues) {
+TEST(Solver, FactorFailureRetriesThenRecoversOrReportsNumericalIssues) {
   const int n = 12, p = 3;
   HostQp base = random_qp(n, p, 0, 71);
   for (GraphMode mode : kAllModes) {
@@ -574,7 +514,6 @@ TEST(SolverReduced, FactorFailureRetriesThenRecoversOrReportsNumericalIssues) {
       }
       DeviceQp d(q);
       SparseSolver s;
-      s.settings().kkt_backend = KktBackend::Reduced;
       s.settings().graph_mode = mode;
       s.settings().max_iter = 50;
       if (which == 1) s.settings().max_factor_retires = 2;
@@ -602,17 +541,17 @@ TEST(SolverReduced, FactorFailureRetriesThenRecoversOrReportsNumericalIssues) {
   }
 }
 
-TEST(SolverReduced, AutoModeRunsTheWholeSolveAsOneGraph) {
+TEST(Solver, AutoModeRunsTheWholeSolveAsOneGraph) {
   HostQp q = random_qp(30, 6, 25, 77);
   DeviceQp d(q);
   // Reference result with an explicit per-iteration graph mode (still honoured).
-  SparseSolver it = make_solver(q, d, GraphMode::IterationGraphHostLoop, KktBackend::Reduced, true);
+  SparseSolver it = make_solver(q, d, GraphMode::IterationGraphHostLoop);
   it.solve();
   Info ii = it.info();
   ASSERT_EQ(ii.status, Status::Solved);
   const auto xi = host_x(it);
 
-  SparseSolver aut = make_solver(q, d, GraphMode::Auto, KktBackend::Reduced, true);
+  SparseSolver aut = make_solver(q, d, GraphMode::Auto);
   aut.solve();  // first solve captures the whole-solve graph
   ASSERT_EQ(aut.info().status, Status::Solved);
   for (int rep = 0; rep < 3; ++rep) {
@@ -626,15 +565,15 @@ TEST(SolverReduced, AutoModeRunsTheWholeSolveAsOneGraph) {
     Info ia = aut.info();
     ASSERT_EQ(ia.status, Status::Solved);
     EXPECT_EQ(ia.iter, ii.iter);
-    // With the deterministic custom SpMV the modes agree bitwise.
+    // Deterministic KKT solve and SpMV: the modes agree bitwise.
     EXPECT_EQ(max_abs_diff(host_x(aut), xi), 0.0);
   }
 }
 
-TEST(Solver, CudssAutoModeStillUsesIterationGraphs) {
+TEST(Solver, IterationGraphModeUsesOneGraphPerIteration) {
   HostQp q = random_qp(20, 4, 15, 78);
   DeviceQp d(q);
-  SparseSolver s = make_solver(q, d, GraphMode::Auto);
+  SparseSolver s = make_solver(q, d, GraphMode::IterationGraphHostLoop);
   s.solve();
   ASSERT_EQ(s.info().status, Status::Solved);
   const Counters c0 = s.counters();
