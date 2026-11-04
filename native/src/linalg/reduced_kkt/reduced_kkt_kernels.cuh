@@ -110,14 +110,45 @@ __global__ void __launch_bounds__(W * 32) assemble_kernel(
       Ca[e] = a;
     }
     unsigned mask = __ballot_sync(0xffffffffu, ok && a != 0.0);
-    while (mask) {
-      const int src = __ffs(mask) - 1;
-      mask &= mask - 1;
-      const double as = __shfl_sync(0xffffffffu, a, src);
-      const int kbs = __shfl_sync(0xffffffffu, kb, src);
-      const int cs = __shfl_sync(0xffffffffu, cnt, src);
-      for (int t = lane; t < cs; t += 32) acc[Cc[kbs + t]] += as * Cv[kbs + t];
+    if (!mask) continue;
+    // Software pipelined over the selected entries: the first 32 compacted
+    // nonzeros of the next row are loaded before the current row's shared
+    // accumulator update, so the gather latency overlaps it. Same products
+    // and the same order of += per accumulator as the plain loop.
+    int src = __ffs(mask) - 1;
+    mask &= mask - 1;
+    double as = __shfl_sync(0xffffffffu, a, src);
+    int kbs = __shfl_sync(0xffffffffu, kb, src), cs = __shfl_sync(0xffffffffu, cnt, src);
+    int c0 = 0;
+    double v0 = 0.0;
+    if (lane < cs) {
+      c0 = Cc[kbs + lane];
+      v0 = Cv[kbs + lane];
+    }
+    while (true) {
+      const bool more = mask != 0;
+      double asn = 0.0, v1 = 0.0;
+      int kbn = 0, csn = 0, c1 = 0;
+      if (more) {
+        src = __ffs(mask) - 1;
+        mask &= mask - 1;
+        asn = __shfl_sync(0xffffffffu, a, src);
+        kbn = __shfl_sync(0xffffffffu, kb, src);
+        csn = __shfl_sync(0xffffffffu, cnt, src);
+        if (lane < csn) {
+          c1 = Cc[kbn + lane];
+          v1 = Cv[kbn + lane];
+        }
+      }
+      if (lane < cs) acc[c0] += as * v0;
+      for (int t = lane + 32; t < cs; t += 32) acc[Cc[kbs + t]] += as * Cv[kbs + t];
       __syncwarp();
+      if (!more) break;
+      as = asn;
+      kbs = kbn;
+      cs = csn;
+      c0 = c1;
+      v0 = v1;
     }
   }
   __syncthreads();
