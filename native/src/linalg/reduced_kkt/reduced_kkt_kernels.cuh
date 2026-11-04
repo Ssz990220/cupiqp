@@ -140,43 +140,44 @@ __global__ void reduce_split_rows_kernel(const int32_t* __restrict__ srow, const
   }
 }
 
-// 1 / sqrt(d): float seed refined by two Newton steps in FP64 (a few FP64
-// instructions instead of the long FP64 sqrt + division sequences, which
-// dominate the diagonal tile on GPUs with reduced FP64 rate). Outside the
-// float range the exact expression is used. Deterministic.
-__device__ __forceinline__ double rsqrt_refined(double d) {
-  if (d > 1e-36 && d < 1e36) {
-    double y = double(rsqrtf(float(d)));
-    y = fma(y, fma(-0.5 * d * y, y, 0.5), y);
-    y = fma(y, fma(-0.5 * d * y, y, 0.5), y);
-    return y;
-  }
-  return 1.0 / sqrt(d);
-}
-
 // Right-looking Cholesky of one 32 x 32 diagonal tile held by a warp, lane i
 // owning row i in registers (a[t] = H_it for t <= i; rows past n are identity
 // rows). On return a[t] = L_it (t <= i), inv = 1 / L_ii, and fail is the first
 // global column + 1 with a non-positive or non-finite pivot (0 = none).
+// 1 / sqrt is CUDA's double rsqrt (a hardware seed and FP64 refinement: on
+// this class of GPU about half the latency of the float-seed Newton
+// iterations it replaces, and at most 2 ulp). The pivot chain is software
+// pipelined: step j first updates column j + 1, takes the next pivot and
+// starts its rsqrt, and only then applies the remaining columns of the
+// rank-1 update, so the rsqrt latency overlaps independent FMAs. Same
+// operations and order per entry as the plain loop; only the issue order
+// changes.
 __device__ __forceinline__ void factor_diag_tile(double (&a)[kTile], int lane, int g0, int n, double& inv,
                                                  int& fail) {
   fail = 0;
   inv = 1.0;
+  double d = __shfl_sync(0xffffffffu, a[0], 0);
+  double r = rsqrt(d);
 #pragma unroll
   for (int j = 0; j < kTile; ++j) {
-    const double d = __shfl_sync(0xffffffffu, a[j], j);
     if (fail == 0 && g0 + j < n && !(d > 0.0 && d <= 1.7976931348623157e308)) fail = g0 + j + 1;
-    const double r = rsqrt_refined(d);
     if (lane == j) {
       a[j] = d * r;
       inv = r;
     } else if (lane > j) {
       a[j] *= r;
     }
+    if (j + 1 < kTile) {
+      const double l1 = __shfl_sync(0xffffffffu, a[j], j + 1);
+      if (lane >= j + 1) a[j + 1] = fma(-a[j], l1, a[j + 1]);
+      d = __shfl_sync(0xffffffffu, a[j + 1], j + 1);
+      const double rn = rsqrt(d);
 #pragma unroll
-    for (int t = j + 1; t < kTile; ++t) {
-      const double ltj = __shfl_sync(0xffffffffu, a[j], t);
-      if (lane >= t) a[t] = fma(-a[j], ltj, a[t]);
+      for (int t = j + 2; t < kTile; ++t) {
+        const double ltj = __shfl_sync(0xffffffffu, a[j], t);
+        if (lane >= t) a[t] = fma(-a[j], ltj, a[t]);
+      }
+      r = rn;
     }
   }
 }
