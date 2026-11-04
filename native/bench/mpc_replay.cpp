@@ -14,6 +14,7 @@
 //
 // Usage: cupiqp_native_replay --data <export dir> --out <results dir>
 //          [--repeats 20] [--graph-mode iteration|none|device] [--custom-spmv] [--staged]
+//          [--kkt-backend cudss|reduced]
 //   --staged: values are written into the solver-owned input buffers before the
 //   timed interval (host_values: pinned host buffers, H2D copy inside the update graph).
 #include <cuda_runtime.h>
@@ -189,7 +190,7 @@ struct Replay {
   cudaEvent_t ev[5];
   std::vector<double> sol_y, sol_zu, sol_zl;
 
-  Replay(const Group& grp, cupiqp::GraphMode mode, bool custom_spmv) : g(grp) {
+  Replay(const Group& grp, cupiqp::GraphMode mode, bool custom_spmv, cupiqp::KktBackend backend) : g(grp) {
     auto& st = solver.settings();
     st.eps_abs = 1e-8;
     st.eps_duality_gap_abs = 1e-8;
@@ -203,6 +204,7 @@ struct Replay {
     st.graph_mode = mode;
     st.verbose = false;
     st.custom_spmv = custom_spmv;
+    st.kkt_backend = backend;
     CK(cudaMalloc(&d_packets, sizeof(double) * g.values.size()));
     CK(cudaMemcpy(d_packets, g.values.data(), sizeof(double) * g.values.size(), cudaMemcpyHostToDevice));
     CK(cudaMallocHost(&h_packets, sizeof(double) * g.values.size()));
@@ -311,6 +313,7 @@ int main(int argc, char** argv) {
     int repeats = 20;
     std::string gm = "iteration";
     bool custom_spmv = false, staged = false;
+    std::string kkt_backend = "cudss";
     for (int i = 1; i < argc; ++i) {
       std::string a = argv[i];
       auto next = [&]() -> std::string {
@@ -323,12 +326,17 @@ int main(int argc, char** argv) {
       else if (a == "--graph-mode") gm = next();
       else if (a == "--custom-spmv") custom_spmv = true;
       else if (a == "--staged") staged = true;
+      else if (a == "--kkt-backend") kkt_backend = next();
       else throw std::runtime_error("unknown argument " + a);
     }
     if (data.empty() || out.empty()) throw std::runtime_error("--data and --out are required");
     cupiqp::GraphMode mode = gm == "none" ? cupiqp::GraphMode::None
                              : gm == "device" ? cupiqp::GraphMode::SolveGraphDeviceLoop
                                               : cupiqp::GraphMode::IterationGraphHostLoop;
+    if (kkt_backend != "cudss" && kkt_backend != "reduced")
+      throw std::runtime_error("--kkt-backend must be cudss or reduced");
+    const cupiqp::KktBackend backend =
+        kkt_backend == "reduced" ? cupiqp::KktBackend::Reduced : cupiqp::KktBackend::Cudss;
     if (fs::exists(out)) throw std::runtime_error("output exists: " + out.string());
     fs::create_directories(out);
 
@@ -342,7 +350,7 @@ int main(int argc, char** argv) {
     std::ofstream sol(out / "solutions.bin", std::ios::binary);
     std::ofstream solidx(out / "solutions-index.jsonl");
     setup << "{\"version\":\"" << cupiqp::version_string() << "\",\"graph_mode\":\"" << gm
-          << "\",\"custom_spmv\":" << (custom_spmv ? "true" : "false") << ",\"staged_inputs\":" << (staged ? "true" : "false") << ",\"repeats\":" << repeats
+          << "\",\"custom_spmv\":" << (custom_spmv ? "true" : "false") << ",\"staged_inputs\":" << (staged ? "true" : "false") << ",\"kkt_backend\":\"" << kkt_backend << "\",\"repeats\":" << repeats
           << ",\"groups\":[";
     int64_t sol_offset = 0, timed = 0;
 
@@ -358,7 +366,7 @@ int main(int argc, char** argv) {
       for (auto& [k, v] : by_traj)
         std::sort(v.begin(), v.end(), [&](int a, int b) { return g.step[a] < g.step[b]; });
 
-      Replay rp(g, mode, custom_spmv);
+      Replay rp(g, mode, custom_spmv, backend);
       rp.staged = staged;
       rp.setup(0);
       // First solve after setup: includes the first graph capture (reported separately).

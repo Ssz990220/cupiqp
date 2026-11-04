@@ -1,0 +1,14 @@
+{"dataset":"mpc","label":"case0_k12","n":169,"p":64,"m":2521,"op":"reduced_assemble","graph_us":65.15,"factor_status":0}
+{"dataset":"mpc","label":"case0_k12","n":169,"p":64,"m":2521,"op":"reduced_factor","graph_us":207.87,"factor_status":0}
+{"dataset":"mpc","label":"case0_k12","n":169,"p":64,"m":2521,"op":"reduced_solve","graph_us":64.51,"factor_status":0}
+{"dataset":"mpc","label":"case0_k12","n":169,"p":64,"m":2521,"op":"reduced_iter_1f2s","graph_us":333.44,"factor_status":0}
+{"dataset":"mpc","label":"case0_k12","n":169,"p":64,"m":2521,"op":"cudss_factor","graph_us":809.57,"factor_status":0}
+{"dataset":"mpc","label":"case0_k12","n":169,"p":64,"m":2521,"op":"cudss_solve","graph_us":118.40,"factor_status":0}
+{"dataset":"mpc","label":"case0_k12","n":169,"p":64,"m":2521,"op":"cudss_iter_1f2s","graph_us":1031.17,"factor_status":0}
+{"dataset":"mpc","label":"case0_k25","n":169,"p":64,"m":2521,"op":"reduced_assemble","graph_us":59.33,"factor_status":0}
+{"dataset":"mpc","label":"case0_k25","n":169,"p":64,"m":2521,"op":"reduced_factor","graph_us":188.99,"factor_status":0}
+{"dataset":"mpc","label":"case0_k25","n":169,"p":64,"m":2521,"op":"reduced_solve","graph_us":58.37,"factor_status":0}
+{"dataset":"mpc","label":"case0_k25","n":169,"p":64,"m":2521,"op":"reduced_iter_1f2s","graph_us":302.88,"factor_status":0}
+{"dataset":"mpc","label":"case0_k25","n":169,"p":64,"m":2521,"op":"cudss_factor","graph_us":812.83,"factor_status":0}
+{"dataset":"mpc","label":"case0_k25","n":169,"p":64,"m":2521,"op":"cudss_solve","graph_us":118.78,"factor_status":0}
+{"dataset":"mpc","label":"case0_k25","n":169,"p":64,"m":2521,"op":"cudss_iter_1f2s","graph_us":1035.07,"factor_status":0}

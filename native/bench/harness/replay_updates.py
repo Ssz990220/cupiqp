@@ -58,6 +58,8 @@ parser.add_argument("--native-build", type=Path, default=REPO / "build" / "nativ
 parser.add_argument("--graph-mode", choices=("iteration", "device", "none"), default="iteration",
                     help="native only: GraphMode (iteration = reference default)")
 parser.add_argument("--custom-spmv", action="store_true", help="native only: deterministic custom SpMV")
+parser.add_argument("--kkt-backend", choices=("cudss", "reduced"), default="cudss",
+                    help="native only: KKT linear-solver backend (Settings.kkt_backend)")
 parser.add_argument("--staged", action="store_true",
                     help="native only: write values into the solver-owned input buffers before the timed "
                          "interval, then update_staged() (host_values: pinned host buffers, H2D in the graph)")
@@ -158,6 +160,7 @@ class Group:
                                      "none": backend_mod.GraphMode.None_}[args.graph_mode]
             s.settings.enable_cuda_graph = args.graph_mode != "none"
             s.settings.custom_spmv = args.custom_spmv
+            s.settings.kkt_backend = args.kkt_backend
         self.s = s
         v = self.packets[first]["values"]
         t = self.template
@@ -274,7 +277,7 @@ def settings_dict(s):
     if args.backend == "reference":
         return {k: (v.__name__ if isinstance(v, type) else v) for k, v in dataclasses.asdict(s.settings).items()}
     nat = s.settings._native
-    return {k: (str(getattr(nat, k)) if k == "graph_mode" else getattr(nat, k)) for k in dir(nat)
+    return {k: (str(getattr(nat, k)) if k in ("graph_mode", "kkt_backend") else getattr(nat, k)) for k in dir(nat)
             if not k.startswith("_") and k != "verify"}
 
 
@@ -300,6 +303,7 @@ metadata = dict(
     native_graph_mode=args.graph_mode if args.backend == "native" else None,
     native_custom_spmv=args.custom_spmv if args.backend == "native" else None,
     native_staged_inputs=args.staged if args.backend == "native" else None,
+    native_kkt_backend=args.kkt_backend if args.backend == "native" else None,
     protocol=("Same as benchmark/replay_mpc_updates.py: one fixed template and solver per stored pattern; "
               "explicit zeros retained; all numeric values replaced through public update(); two excluded "
               "warm-up passes; first snapshot of each trajectory solved as an excluded seed every repeat; mode "

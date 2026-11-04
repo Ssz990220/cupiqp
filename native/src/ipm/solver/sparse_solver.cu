@@ -13,6 +13,7 @@
 #include <cstring>
 #include <functional>
 #include <map>
+#include <string>
 #include <vector>
 
 #include "common/buffer.hpp"
@@ -26,6 +27,7 @@
 #include "linalg/cudss/cudss_solver.hpp"
 #include "linalg/kkt_assembly/kkt_assembly.hpp"
 #include "linalg/kkt_system/kkt_system.hpp"
+#include "linalg/reduced_kkt/reduced_kkt_solver.hpp"
 #include "linalg/spmv/spmv.hpp"
 #include "problem/data/sparse_data.hpp"
 #include "problem/ruiz/ruiz.hpp"
@@ -75,18 +77,20 @@ struct Frozen {
   int32_t preconditioner_iter;
   bool preconditioner_scale_cost, preconditioner_reuse_on_update, iterative_refinement_always_enabled;
   bool use_deterministic_mode_for_cudss, custom_spmv;
+  KktBackend kkt_backend;
   bool operator==(const Frozen& o) const {
     return preconditioner_iter == o.preconditioner_iter &&
            preconditioner_scale_cost == o.preconditioner_scale_cost &&
            preconditioner_reuse_on_update == o.preconditioner_reuse_on_update &&
            iterative_refinement_always_enabled == o.iterative_refinement_always_enabled &&
            use_deterministic_mode_for_cudss == o.use_deterministic_mode_for_cudss &&
-           custom_spmv == o.custom_spmv;
+           custom_spmv == o.custom_spmv && kkt_backend == o.kkt_backend;
   }
 };
 Frozen frozen_of(const Settings& s) {
   return {s.preconditioner_iter, s.preconditioner_scale_cost, s.preconditioner_reuse_on_update,
-          s.iterative_refinement_always_enabled, s.use_deterministic_mode_for_cudss, s.custom_spmv};
+          s.iterative_refinement_always_enabled, s.use_deterministic_mode_for_cudss, s.custom_spmv,
+          s.kkt_backend};
 }
 
 }  // namespace
@@ -117,6 +121,11 @@ class SparseSolverImpl {
       throw Error(ErrorCode::Unsupported,
                   "use_deterministic_mode_for_cudss is not supported: cuDSS 0.8.0.10 "
                   "DETERMINISTIC_MODE faults intermittently (FEASIBILITY.md 3.7)");
+    if (settings.kkt_backend == KktBackend::Reduced && P.rows > ReducedKktSolver::kMaxN)
+      throw Error(ErrorCode::Unsupported,
+                  "kkt_backend = Reduced supports n <= " + std::to_string(ReducedKktSolver::kMaxN) +
+                      " (dense n x n Schur complement); this problem has n = " + std::to_string(P.rows) +
+                      ". Use kkt_backend = Cudss.");
     cudaStream_t s = stream_.get();
 
     data_.init(P, A, G, v, s);
@@ -132,17 +141,26 @@ class SparseSolverImpl {
 
     ops_.init(cusparse_.get(), dv, settings.custom_spmv ? SpmvBackend::Custom : SpmvBackend::Cusparse);
     kkt_.init(data_.P_pattern(), data_.A_pattern(), data_.G_pattern(), dv, s);
-    cudss_.init(kkt_.dim(), kkt_.nnz(), kkt_.indptr(), kkt_.indices(), kkt_.values(),
-                settings.use_deterministic_mode_for_cudss, s);
-    cudss_.analyze(s);
-    // Warm-up FACTORIZATION + SOLVE on the template KKT values: cuDSS allocates
-    // its factor workspace lazily on the first factorization (1.5 MB at the MPC
-    // shape). Doing it here keeps every later update/solve allocation-free and
-    // keeps allocation nodes out of captured graphs (a graph with an unfreed
-    // allocation node cannot be relaunched). The result is discarded.
-    cudss_.factor(s);
-    cudss_.solve(s);
-    kkt_sys_.init(d_, settings, &kkt_, &cudss_, &ops_, dev_settings_view(), &loops_, s);
+    KktLinearSolver* linear_solver = nullptr;
+    if (settings.kkt_backend == KktBackend::Reduced) {
+      // Dense Schur complement; no cuDSS analysis or warm-up (the reduced
+      // backend allocates everything in init).
+      reduced_.init(kkt_, s);
+      linear_solver = &reduced_;
+    } else {
+      cudss_.init(kkt_.dim(), kkt_.nnz(), kkt_.indptr(), kkt_.indices(), kkt_.values(),
+                  settings.use_deterministic_mode_for_cudss, s);
+      cudss_.analyze(s);
+      // Warm-up FACTORIZATION + SOLVE on the template KKT values: cuDSS allocates
+      // its factor workspace lazily on the first factorization (1.5 MB at the MPC
+      // shape). Doing it here keeps every later update/solve allocation-free and
+      // keeps allocation nodes out of captured graphs (a graph with an unfreed
+      // allocation node cannot be relaunched). The result is discarded.
+      cudss_.factor(s);
+      cudss_.solve(s);
+      linear_solver = &cudss_;
+    }
+    kkt_sys_.init(d_, settings, &kkt_, linear_solver, &ops_, dev_settings_view(), &loops_, s);
 
     ruiz_.compute_constraints_rhs_inf_norm_unscaled(dv, rhs_norm_.data(), s);
     sync_stream(s, &counters_);
@@ -390,6 +408,7 @@ class SparseSolverImpl {
   SparseOperators ops_;
   KktAssembly kkt_;
   CudssSolver cudss_;
+  ReducedKktSolver reduced_;  // used instead of cudss_ with KktBackend::Reduced
   KktSystem kkt_sys_;
   Dims d_;
   bool setup_done_ = false;
@@ -600,9 +619,11 @@ class SparseSolverImpl {
   // snapshots, and the snapshot bytes must agree; otherwise fall back.
   void ensure_solve_graph(cudaStream_t s) {
     if (solve_graph_.valid() || solve_graph_failed_) return;
-    int major = 0, minor = 0;
-    cudssGetProperty(MAJOR_VERSION, &major);
-    cudssGetProperty(MINOR_VERSION, &minor);
+    int major = 0, minor = 8;
+    if (settings.kkt_backend == KktBackend::Cudss) {  // the cuDSS graph patch is version specific
+      cudssGetProperty(MAJOR_VERSION, &major);
+      cudssGetProperty(MINOR_VERSION, &minor);
+    }
     if (!(major == 0 && minor == 8)) {
       solve_graph_failed_ = true;
       return;

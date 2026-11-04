@@ -32,6 +32,8 @@ class Status(IntEnum):
 
 
 GraphMode = _ext.GraphMode
+KktBackend = _ext.KktBackend
+_KKT_BACKEND_NAMES = {"cudss": KktBackend.Cudss, "reduced": KktBackend.Reduced}
 
 # Reference Settings fields that only exist for unsupported features; setting
 # them to a non-default value is rejected at setup().
@@ -65,6 +67,11 @@ class Settings:
         native = object.__getattribute__(self, "_native")
         if name == "dtype":
             raise AttributeError("Settings.dtype is fixed (float64 in the native milestone 1)")
+        if name == "kkt_backend" and isinstance(value, str):
+            try:
+                value = _KKT_BACKEND_NAMES[value.lower()]
+            except KeyError:
+                raise ValueError(f"kkt_backend must be one of {sorted(_KKT_BACKEND_NAMES)}; got {value!r}")
         if hasattr(native, name):
             setattr(native, name, value)
         elif name in _UNSUPPORTED_DEFAULTS or name in _IGNORED:

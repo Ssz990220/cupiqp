@@ -1,0 +1,40 @@
+{
+  "backend": "native",
+  "dataset": "trajopt",
+  "graph_mode": "device",
+  "kkt_backend": "reduced",
+  "custom_spmv": true,
+  "eps": 1e-08,
+  "source_cases": [
+    "22-9ead-pick-0b255ad9__iter_000",
+    "22-9ead-pick-0b255ad9__iter_001"
+  ],
+  "status": "CUPIQP_SOLVED",
+  "iterations": 25,
+  "validation": {
+    "finite": true,
+    "objective": -10.675042631103222,
+    "equality_inf": 6.106226635438361e-16,
+    "inequality_inf": 0.0,
+    "primal_pass": true,
+    "tolerance": 1e-06,
+    "kkt_pass": true,
+    "dual_available": true,
+    "stationarity_inf": 6.083573089732397e-09,
+    "complementarity_inf": 1.364690859701125e-13,
+    "dual_domain_inf": 0.0
+  },
+  "profile_range": "One warmed update(all matrices/vectors)+solve+device completion; inputs pre-uploaded; setup, JIT, first capture, status reads, downloads and validation outside the range.",
+  "native_counters_in_range": {
+    "host_syncs": 0,
+    "graph_launches": 1,
+    "graph_captures": 0,
+    "cudss_device_allocs": 0,
+    "cudss_device_frees": 0,
+    "cudss_analysis_calls": 0,
+    "cudss_factor_calls": 0,
+    "cudss_solve_calls": 0,
+    "updates": 1,
+    "solves": 1
+  }
+}

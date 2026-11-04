@@ -56,6 +56,27 @@ numerically neutral (verified by tests) or is reported with its measured effect.
   required, as is cuDSS 0.8. Otherwise the solver falls back to the default
   mode. This relies on undocumented cuDSS internals.
 
+- `Settings::kkt_backend = KktBackend::Reduced` (added 2026-11-03,
+  `native/docs/modules/reduced_kkt_backend.md`): dense Schur complement
+  H = P + x_reg + [A; G]^T W [A; G] with custom deterministic assembly,
+  Cholesky and triangular-solve kernels instead of cuDSS. Differences from
+  the default (cuDSS) path:
+  - different factorization, so different rounding: iterates agree with
+    cuDSS early and diverge in the last bits once the system is
+    ill-conditioned; iteration counts stay comparable (ladder in the module
+    note);
+  - Cholesky failures (non-positive or non-finite pivot) are written to
+    `factor_status` and drive the factor-retry kernel (rho, delta x100,
+    `NUMERICAL_ISSUES` after `max_factor_retires`), as in the reference
+    dense backend; with cuDSS the status stays 0, as in the reference sparse
+    backend;
+  - bitwise deterministic (cuDSS default mode is not);
+  - rejected at setup (`Unsupported`) for n > 2048;
+  - no cuDSS analysis or warm-up.
+  Maros-Meszaros (3 runs each): the reduced backend solves every one of the
+  89 problems with n <= 2048 in every run; cuDSS fails 16 of those in every
+  run and 6 more in some runs.
+
 ## 5. Unsupported in milestone 1 (rejected with an error)
 
 - Batch size > 1, float32, dense and multistage backends, gradients
@@ -76,3 +97,7 @@ numerically neutral (verified by tests) or is reported with its measured effect.
   (WSL). Memcheck covered the non-conditional paths only.
 - `cudaPointerGetAttributes` reports `cudaMalloc` memory as "unregistered" on
   WSL. The memcpy patch therefore decides by copy direction first.
+- Reduced KKT backend: the Cholesky and the triangular solve are latency
+  bound on this GPU (FP64 1/64 rate); the n limit (2048) was measured on one
+  GPU type only and is not a heuristic between the backends. See
+  `native/docs/modules/reduced_kkt_backend.md` section 7.

@@ -17,13 +17,15 @@
 #include "common/handles.hpp"
 #include "cupiqp/cupiqp.hpp"
 #include "linalg/cudss/cudss_memory.hpp"
+#include "linalg/kkt_system/kkt_linear_solver.hpp"
 
 namespace cupiqp {
 
-class CudssSolver {
+// Implements KktLinearSolver (the default backend of KktSystem).
+class CudssSolver : public KktLinearSolver {
  public:
   explicit CudssSolver(Counters* counters);
-  ~CudssSolver();  // descriptors, data, config, handle (in that order)
+  ~CudssSolver() override;  // descriptors, data, config, handle (in that order)
   CudssSolver(const CudssSolver&) = delete;
   CudssSolver& operator=(const CudssSolver&) = delete;
 
@@ -33,15 +35,15 @@ class CudssSolver {
   void init(int32_t dim, int32_t nnz, const int32_t* indptr, const int32_t* indices,
             double* values, bool deterministic, cudaStream_t s);
 
-  double* rhs() { return rhs_.data(); }  // (dim,), stable
-  double* sol() { return sol_.data(); }  // (dim,), stable
+  double* rhs() override { return rhs_.data(); }  // (dim,), stable
+  double* sol() override { return sol_.data(); }  // (dim,), stable
 
   void analyze(cudaStream_t s);  // ANALYSIS (once, at setup)
-  void factor(cudaStream_t s);   // FACTORIZATION, async, capturable (also in conditional bodies)
+  void factor(cudaStream_t s) override;   // FACTORIZATION, async, capturable (also in conditional bodies)
   // REFACTORIZATION: numeric re-factorization reusing the pivoting/structure of
   // the last FACTORIZATION (same pattern). Requires a prior factor().
   void refactor(cudaStream_t s);
-  void solve(cudaStream_t s);    // SOLVE, async, capturable in plain graphs only
+  void solve(cudaStream_t s) override;    // SOLVE, async, capturable in plain graphs only
 
   // Added by M5 (not part of the original contract): sizes and the memory
   // handler statistics (see cudss_memory.hpp).
